@@ -2605,7 +2605,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
 
                 <div className="text-xs space-y-1 pt-1">
                   <div className="text-slate-400">
-                    🤖 <strong>AI 角色：</strong>
+                    🎭 <strong>AI 扮演角色：</strong>
                     <span className="text-slate-200">{scenario.aiRole}</span>
                   </div>
                   <div className="text-slate-400">
