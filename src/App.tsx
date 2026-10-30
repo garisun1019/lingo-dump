@@ -441,7 +441,7 @@ export default function App() {
     if (!activeGeminiKey) {
       throw new Error("未配置 Gemini API Key：请在「设置」中切换到自定义 Gemini 或 OpenAI 兼容服务商，或构建时注入 VITE_GEMINI_API_KEY");
     }
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${activeGeminiKey}`;
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
 
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -460,7 +460,10 @@ export default function App() {
       try {
         const res = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": activeGeminiKey
+          },
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
