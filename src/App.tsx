@@ -1210,6 +1210,11 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isAiTyping]);
 
+  // Reset page scroll when switching tabs or returning to the landing page
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeTab, showLanding]);
+
   // Text selection listener for Arena & Review
   useEffect(() => {
     const handleMouseUp = () => {
@@ -1226,7 +1231,7 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
           if (rect.width > 0) {
             setSelectionPopup({
               text,
-              x: Math.min(window.innerWidth - 240, Math.max(16, rect.left)),
+              x: Math.min(window.innerWidth - 300, Math.max(8, rect.left)),
               y: Math.max(16, rect.top - 48)
             });
           }
@@ -1753,14 +1758,14 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
   // ==========================================
   if (showLanding) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white overflow-x-clip">
         {/* soft background glows */}
         <div className="pointer-events-none fixed inset-0 overflow-hidden">
           <div className="absolute -top-40 -left-32 w-[480px] h-[480px] rounded-full bg-indigo-600/20 blur-[120px]" />
           <div className="absolute top-1/3 -right-40 w-[520px] h-[520px] rounded-full bg-emerald-500/10 blur-[140px]" />
         </div>
 
-        <div className="relative max-w-6xl mx-auto px-5 lg:px-8 py-7 space-y-14">
+        <div className="relative max-w-6xl mx-auto px-4 sm:px-5 lg:px-8 py-5 sm:py-7 space-y-10 sm:space-y-14">
           {/* Top bar */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -1795,7 +1800,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               <span className="inline-flex items-center gap-2 text-[11px] font-semibold px-3 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">
                 V1.0 · 动态 CEFR 能力评估 · 原句锚定升华
               </span>
-              <h2 className="text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight text-white">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold leading-tight tracking-tight text-white">
                 打破「收藏即学会」的魔咒
               </h2>
               <p className="text-sm text-slate-300 leading-relaxed">
@@ -2093,7 +2098,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       {/* Toast */}
       {quickSaveToast && (
-        <div className="fixed top-20 right-6 z-[100] max-w-[calc(100vw-3rem)] bg-indigo-600 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-indigo-400/40 flex items-center gap-2 text-xs font-semibold animate-bounce">
+        <div className="fixed top-16 sm:top-20 right-3 sm:right-6 z-[100] max-w-[calc(100vw-1.5rem)] bg-indigo-600 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-indigo-400/40 flex items-center gap-2 text-xs font-semibold animate-bounce">
           <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
           <span>{quickSaveToast}</span>
         </div>
@@ -2101,7 +2106,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
 
       {/* Global Analyzing Banner */}
       {isAnalyzingDump && analyzingSourceLabel && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-900/95 border border-indigo-500 text-indigo-200 px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-bold">
+        <div className="fixed top-16 sm:top-20 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[100] bg-slate-900/95 border border-indigo-500 text-indigo-200 px-4 sm:px-5 py-2.5 rounded-2xl sm:rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-bold">
           <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
           <span>AI 正在从【{analyzingSourceLabel}】智能拆解可学习的地道表达，请稍候...</span>
         </div>
@@ -2143,16 +2148,19 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
       )}
 
       {/* Top Navigation Header */}
-      <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 lg:px-8 py-3">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Sparkles className="w-5 h-5 text-white" />
+      <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-3 sm:px-4 lg:px-8 py-2.5 sm:py-3">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="font-bold text-lg tracking-tight text-white">English Dump & Role-play</h1>
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                <h1 className="font-bold text-sm sm:text-lg tracking-tight text-white truncate">
+                  <span className="sm:hidden">Lingo Dump</span>
+                  <span className="hidden sm:inline">English Dump & Role-play</span>
+                </h1>
+                <span className="hidden sm:inline-flex text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 whitespace-nowrap">
                   动态水平驱动 + 原句锚定升华
                 </span>
               </div>
@@ -2162,12 +2170,12 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             <button
               onClick={() => setShowProficiencyModal(!showProficiencyModal)}
-              className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 transition-all text-left"
+              className="flex items-center gap-2 sm:gap-2.5 px-2 sm:px-3.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 transition-all text-left"
             >
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 font-bold text-sm">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 font-bold text-xs sm:text-sm">
                 {profile.cefr}
               </div>
               <div className="hidden md:block">
@@ -2181,7 +2189,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               </div>
             </button>
 
-            <nav className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <nav className="hidden md:flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
               <button
                 onClick={() => setActiveTab("inbox")}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
@@ -2231,17 +2239,17 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             <button
               onClick={() => setShowLanding(true)}
               title="返回启动页（可切换示例 / 空白模式）"
-              className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-all"
+              className="p-2 sm:p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-all"
             >
               <Home className="w-4 h-4 text-emerald-400" />
             </button>
 
             <button
               onClick={() => setShowSettingsModal(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition-all"
+              className="flex items-center gap-1.5 p-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition-all"
             >
               <Settings className="w-4 h-4 text-indigo-400" />
-              <span>设置</span>
+              <span className="hidden sm:inline">设置</span>
             </button>
           </div>
         </div>
@@ -2281,13 +2289,13 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
       </header>
 
       {/* Main Content Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
         {/* ==========================================
             TAB 1: INBOX (CORPUS CARDS & RAW INPUT STREAM)
            ========================================== */}
         {activeTab === "inbox" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-5 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+            <div className="lg:col-span-5 space-y-4 lg:space-y-6">
               {/* Quick Dump Input Card */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
                 <div className="flex items-center justify-between mb-3">
@@ -2295,7 +2303,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <Zap className="w-4 h-4 text-amber-400" />
                     <h2 className="font-bold text-base text-white">随手记 (Quick English Dump)</h2>
                   </div>
-                  <span className="text-[11px] text-slate-400">AI 自动拆解多条地道表达</span>
+                  <span className="text-[11px] text-slate-400 hidden sm:inline">AI 自动拆解多条地道表达</span>
                 </div>
 
                 <form onSubmit={handleAddDump} className="space-y-3">
@@ -2401,7 +2409,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  点击下方按钮将先跳转到**剧本编辑与主题风格选择界面**，你可以自由选择对话主题、AI性格、回复篇幅并预览/修改剧本后再开战！
+                  点击下方按钮将先跳转到<strong className="text-slate-200">剧本编辑与主题风格选择界面</strong>，你可以自由选择对话主题、AI 性格、回复篇幅并预览/修改剧本后再开战！
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                   <button
@@ -2613,7 +2621,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-xl px-4 py-2.5 text-xs text-indigo-200 flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
                     <span>
-                      下方展示你录入的所有原始英文段落。**原文中已入选语料库的部分已直接内联高亮标出**，单击原文中的高亮词块即可跳转到对应的具体语料卡片！
+                      下方展示你录入的所有原始英文段落。<strong className="text-white">原文中已入选语料库的部分已直接内联高亮标出</strong>，单击原文中的高亮词块即可跳转到对应的具体语料卡片！
                     </span>
                   </div>
                   {groupedRawInputs.length === 0 && (
@@ -2897,7 +2905,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             TAB 1.5: ARENA SETUP & SCRIPT CUSTOMIZATION EDITOR
            ========================================== */}
         {activeTab === "arena_setup" && (
-          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 lg:p-8 space-y-6 shadow-2xl">
+          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6 shadow-2xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
@@ -3094,10 +3102,10 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 <span className="text-[11px] text-slate-500">空白模式下不会载入示例对话，用自己的语料开练即可。</span>
               )}
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 w-full sm:w-auto">
                 <button
                   onClick={() => handleGenerateAndStartArena(true)}
-                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm flex items-center gap-2 shadow-lg shadow-emerald-600/30"
+                  className="w-full sm:w-auto px-4 sm:px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30"
                 >
                   <Play className="w-4 h-4 fill-white" />
                   <span>按当前剧本正式进入实战对话</span>
@@ -3111,8 +3119,8 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             TAB 2: ARENA ROLE-PLAY CHAT
            ========================================== */}
         {activeTab === "arena" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-4 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+            <div className="order-2 lg:order-1 lg:col-span-4 space-y-4">
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">
@@ -3222,29 +3230,31 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               </div>
             </div>
 
-            <div className="lg:col-span-8 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden h-[640px] shadow-xl">
-              <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="font-bold text-sm text-white">{scenario.aiRole}</span>
+            <div className="order-1 lg:order-2 lg:col-span-8 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden h-[calc(100dvh-11rem)] min-h-[420px] max-h-[760px] lg:h-[640px] lg:max-h-none shadow-xl">
+              <div className="px-3 sm:px-5 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2.5 h-2.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="font-bold text-sm text-white truncate">{scenario.aiRole}</span>
                   <span className="text-[11px] text-slate-400 hidden sm:inline">
                     (划选任意文字或点击气泡右上角可将地道表达拆解入库)
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={handleGiveMeACue}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1"
+                    className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold flex items-center gap-1"
                   >
                     <HelpCircle className="w-3.5 h-3.5" />
-                    <span>让 AI 递话柄</span>
+                    <span className="hidden sm:inline">让 AI 递话柄</span>
+                    <span className="sm:hidden">递话柄</span>
                   </button>
                   <button
                     onClick={handleFinishAndEvaluate}
-                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 shadow"
+                    className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow"
                   >
                     <Award className="w-3.5 h-3.5" />
-                    <span>结束并生成升华复盘</span>
+                    <span className="hidden sm:inline">结束并生成升华复盘</span>
+                    <span className="sm:hidden">结束复盘</span>
                   </button>
                 </div>
               </div>
@@ -3256,7 +3266,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 </div>
               )}
 
-              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-3 sm:space-y-4">
                 {isGeneratingScenario ? (
                   <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3">
                     <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
@@ -3325,22 +3335,44 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 <div ref={chatEndRef} />
               </div>
 
-              <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center gap-3">
+              {activeTargetItems.length > 0 && (
+                <div className="md:hidden px-3 py-2 bg-slate-950/80 border-t border-slate-800 flex items-center gap-1.5 overflow-x-auto">
+                  <span className="text-[10px] text-slate-500 shrink-0">本局目标</span>
+                  {activeTargetItems.map((item) => {
+                    const isHit = Boolean(hitTargets[item.id]?.hit);
+                    return (
+                      <span
+                        key={item.id}
+                        className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap ${
+                          isHit
+                            ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                            : "bg-slate-900 border-slate-700 text-slate-300"
+                        }`}
+                      >
+                        {isHit ? "✓ " : ""}
+                        {item.target}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="p-3 sm:p-4 bg-slate-950 border-t border-slate-800 flex items-center gap-2 sm:gap-3">
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                  placeholder="用英语回复... 尝试把左侧的目标词自然融入你的句子中"
-                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  placeholder="用英语回复…"
+                  className="flex-1 min-w-0 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
                 <button
                   onClick={handleSendMessage}
                   disabled={!chatInput.trim() || isAiTyping}
-                  className="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-sm flex items-center gap-1.5"
+                  className="shrink-0 px-4 sm:px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-sm flex items-center gap-1.5"
                 >
                   <Send className="w-4 h-4" />
-                  <span>发送</span>
+                  <span className="hidden sm:inline">发送</span>
                 </button>
               </div>
             </div>
@@ -3351,14 +3383,14 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             TAB 3: REVIEW & ANCHOR-BASED UPGRADES & DRILLS
            ========================================== */}
         {activeTab === "review" && (
-          <div className="space-y-8">
+          <div className="space-y-6 sm:space-y-8">
             {isEvaluating ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-3">
                 <RefreshCw className="w-8 h-8 animate-spin text-indigo-400 mx-auto" />
                 <h3 className="text-lg font-bold text-white">AI 正在生成基于你原词原句的升华对比报告...</h3>
               </div>
             ) : reviewData?.isEmpty ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-3">
                 <Award className="w-9 h-9 text-slate-600 mx-auto" />
                 <h3 className="text-lg font-bold text-white">还没有可复盘的对话</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
@@ -3383,7 +3415,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               </div>
             ) : (
               <>
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center shadow-xl">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-center shadow-xl">
                   <div className="lg:col-span-4 flex items-center gap-5 border-b lg:border-b-0 lg:border-r border-slate-800 pb-4 lg:pb-0">
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex flex-col items-center justify-center text-white shadow-lg">
                       <span className="text-2xl font-extrabold">{reviewData.overallScore}</span>
@@ -3414,7 +3446,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   {reviewData.sentenceUpgrades.map((item, index) => (
                     <div
                       key={index}
-                      className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg p-5 space-y-4"
+                      className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg p-4 sm:p-5 space-y-4"
                     >
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
@@ -3468,7 +3500,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     return (
                       <div
                         key={drill.id}
-                        className="bg-slate-900 border border-amber-500/40 rounded-2xl p-6 space-y-4 shadow-xl"
+                        className="bg-slate-900 border border-amber-500/40 rounded-2xl p-4 sm:p-6 space-y-4 shadow-xl"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
@@ -3559,20 +3591,56 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
         )}
       </main>
 
+      {/* Mobile Bottom Tab Bar */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 pb-[env(safe-area-inset-bottom)]">
+        <div className="grid grid-cols-4">
+          {[
+            { id: "inbox", label: "语料库", icon: Inbox, count: inboxItems.length },
+            { id: "arena_setup", label: "剧本", icon: Sliders },
+            { id: "arena", label: "实战", icon: MessageSquare },
+            { id: "review", label: "复盘", icon: Award }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex flex-col items-center justify-center gap-1 py-2.5 text-[10px] font-semibold transition-colors ${
+                  isActive ? "text-indigo-300" : "text-slate-500 active:text-slate-300"
+                }`}
+              >
+                {isActive && (
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-indigo-400" />
+                )}
+                <Icon className={`w-5 h-5 ${isActive ? "text-indigo-400" : ""}`} />
+                <span className="flex items-center gap-1">
+                  {tab.label}
+                  {typeof tab.count === "number" && tab.count > 0 && (
+                    <span className="px-1 rounded-full bg-slate-800 text-[9px] text-slate-300">{tab.count}</span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
       {/* ==========================================
           FLOATING QUICK NOTES WIDGET (Minimizable)
          ========================================== */}
-      <div className="fixed bottom-5 right-5 z-40">
+      <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-5 right-3 sm:right-5 z-40">
         {isNotesMinimized ? (
           <button
             onClick={() => setIsNotesMinimized(false)}
-            className="flex items-center gap-2 px-4 py-3 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-2xl shadow-amber-500/30 transition-all"
+            className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-2xl shadow-amber-500/30 transition-all"
           >
             <StickyNote className="w-4 h-4" />
-            <span>随手记 Notes</span>
+            <span className="hidden sm:inline">随手记 Notes</span>
+            <span className="sm:hidden">Notes</span>
           </button>
         ) : (
-          <div className="w-80 bg-slate-900 border border-amber-500/50 rounded-2xl shadow-2xl overflow-hidden">
+          <div className="w-[min(20rem,calc(100vw-1.5rem))] bg-slate-900 border border-amber-500/50 rounded-2xl shadow-2xl overflow-hidden">
             <div className="px-4 py-2.5 bg-amber-500/20 border-b border-amber-500/30 flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs">
                 <StickyNote className="w-4 h-4" />
@@ -3621,11 +3689,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
          ========================================== */}
       {extractionModalData && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-base text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
+          <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl max-w-2xl w-full max-h-[88vh] sm:max-h-[88dvh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm sm:text-base text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
                   <span>
                     AI 已从【{extractionModalData.sourceLabel || "输入内容"}】拆解出{" "}
                     {extractionModalData.candidates.length} 个地道表达
@@ -3640,11 +3708,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               </button>
             </div>
 
-            <div className="px-6 py-2.5 bg-slate-950/60 border-b border-slate-800 text-xs text-slate-400 italic truncate">
+            <div className="px-4 sm:px-6 py-2.5 bg-slate-950/60 border-b border-slate-800 text-xs text-slate-400 italic truncate">
               原句："{extractionModalData.rawText}"
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
               {extractionModalData.candidates.map((cand) => {
                 const isChecked = extractionModalData.selectedTempIds.includes(cand.tempId);
                 return (
@@ -3747,7 +3815,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
          ========================================== */}
       {qaModalState && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-xl w-full max-h-[85vh] sm:max-h-[88dvh] flex flex-col shadow-2xl overflow-hidden">
             <div className="px-5 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
               <h3 className="font-bold text-sm text-white flex items-center gap-2">
                 <Lightbulb className="w-4 h-4 text-amber-400" />
@@ -3829,10 +3897,10 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
          ========================================== */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 shadow-2xl">
+          <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl max-w-lg w-full max-h-[90vh] sm:max-h-[92dvh] overflow-y-auto p-4 sm:p-6 space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="font-bold text-base text-white flex items-center gap-2">
-                <Settings className="w-4 h-4 text-indigo-400" />
+              <h3 className="font-bold text-sm sm:text-base text-white flex items-center gap-2">
+                <Settings className="w-4 h-4 text-indigo-400 shrink-0" />
                 <span>全局设置 · 模型配置 · 数据导入导出</span>
               </h3>
               <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-white">
