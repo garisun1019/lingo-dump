@@ -214,6 +214,7 @@ const DEFAULT_SCENARIO = {
 };
 
 const DEMO_REVIEW_DATA = {
+  isDemo: true,
   overallScore: 85,
   hitCount: 2,
   totalTargets: 3,
@@ -430,6 +431,328 @@ const isUsefulExtractionTarget = (target) => {
   return true;
 };
 
+// ----------------------------------------------------------
+// Morphology-aware phrase matching (hit detection + duplicate keys)
+// ----------------------------------------------------------
+const IRREGULAR_FORMS = {
+  bite: ["bit", "bitten", "bites", "biting"],
+  be: ["am", "is", "are", "was", "were", "been", "being"],
+  become: ["became", "becoming"],
+  begin: ["began", "begun", "beginning"],
+  break: ["broke", "broken", "breaking"],
+  bring: ["brought", "bringing"],
+  build: ["built", "building"],
+  buy: ["bought", "buying"],
+  catch: ["caught", "catching"],
+  choose: ["chose", "chosen", "choosing"],
+  come: ["came", "coming"],
+  cost: ["costing"],
+  cut: ["cutting"],
+  deal: ["dealt", "dealing"],
+  dig: ["dug", "digging"],
+  do: ["did", "done", "doing", "does"],
+  draw: ["drew", "drawn", "drawing"],
+  drink: ["drank", "drunk", "drinking"],
+  drive: ["drove", "driven", "driving"],
+  eat: ["ate", "eaten", "eating"],
+  fall: ["fell", "fallen", "falling"],
+  feel: ["felt", "feeling"],
+  fight: ["fought", "fighting"],
+  find: ["found", "finding"],
+  fly: ["flew", "flown", "flying"],
+  forget: ["forgot", "forgotten", "forgetting"],
+  freeze: ["froze", "frozen", "freezing"],
+  get: ["got", "gotten", "getting"],
+  give: ["gave", "given", "giving"],
+  go: ["went", "gone", "going", "goes"],
+  grow: ["grew", "grown", "growing"],
+  hang: ["hung", "hanging"],
+  have: ["has", "had", "having"],
+  hear: ["heard", "hearing"],
+  hide: ["hid", "hidden", "hiding"],
+  hold: ["held", "holding"],
+  keep: ["kept", "keeping"],
+  know: ["knew", "known", "knowing"],
+  lay: ["laid", "laying"],
+  lead: ["led", "leading"],
+  learn: ["learnt", "learned", "learning"],
+  leave: ["left", "leaving"],
+  lend: ["lent", "lending"],
+  let: ["letting"],
+  lie: ["lay", "lain", "lying"],
+  lose: ["lost", "losing"],
+  make: ["made", "making"],
+  mean: ["meant", "meaning"],
+  meet: ["met", "meeting"],
+  pay: ["paid", "paying"],
+  put: ["putting"],
+  read: ["reading"],
+  ride: ["rode", "ridden", "riding"],
+  rise: ["rose", "risen", "rising"],
+  run: ["ran", "running"],
+  say: ["said", "saying"],
+  see: ["saw", "seen", "seeing"],
+  seek: ["sought", "seeking"],
+  sell: ["sold", "selling"],
+  send: ["sent", "sending"],
+  set: ["setting"],
+  shake: ["shook", "shaken", "shaking"],
+  shine: ["shone", "shining"],
+  shoot: ["shot", "shooting"],
+  show: ["showed", "shown", "showing"],
+  sing: ["sang", "sung", "singing"],
+  sink: ["sank", "sunk", "sinking"],
+  sit: ["sat", "sitting"],
+  sleep: ["slept", "sleeping"],
+  slide: ["slid", "sliding"],
+  speak: ["spoke", "spoken", "speaking"],
+  spend: ["spent", "spending"],
+  stand: ["stood", "standing"],
+  steal: ["stole", "stolen", "stealing"],
+  stick: ["stuck", "sticking"],
+  strike: ["struck", "striking"],
+  swim: ["swam", "swum", "swimming"],
+  take: ["took", "taken", "taking"],
+  teach: ["taught", "teaching"],
+  tear: ["tore", "torn", "tearing"],
+  tell: ["told", "telling"],
+  think: ["thought", "thinking"],
+  throw: ["threw", "thrown", "throwing"],
+  understand: ["understood", "understanding"],
+  wake: ["woke", "woken", "waking"],
+  wear: ["wore", "worn", "wearing"],
+  win: ["won", "winning"],
+  write: ["wrote", "written", "writing"]
+};
+const INFLECTION_TO_BASE = (() => {
+  const map = {};
+  Object.entries(IRREGULAR_FORMS).forEach(([base, forms]) => {
+    forms.forEach((form) => {
+      map[form] = base;
+    });
+  });
+  return map;
+})();
+const PHRASE_PLACEHOLDERS = new Set([
+  "sb", "sbs", "sth", "sths", "somebody", "something", "someone", "one", "ones",
+  "one's", "sb's", "sth's", "somebody's", "something's", "someone's", "your", "his",
+  "her", "their", "my", "our", "its"
+]);
+
+// Function words that may be dropped from an entry without changing its identity:
+// "give a heads-up" still matches "they gave us heads up".
+const PHRASE_OPTIONAL_TOKENS = new Set([
+  "a", "an", "the", "my", "your", "his", "her", "its", "our", "their",
+  "this", "these", "those", "some", "any", "it", "them", "him", "me", "us",
+  "be", "am", "is", "are", "was", "were", "been", "being"
+]);
+const PHRASE_FILLERS = new Set([
+  "a", "an", "the", "to", "up", "on", "in", "at", "for", "with", "of", "by",
+  "from", "about", "that", "this", "it", "them", "him", "her", "me", "us",
+  "some", "any", "my", "your", "his", "their", "our", "be", "is", "are",
+  "was", "were", "been", "being", "have", "has", "had", "do", "does", "did",
+  "will", "would", "can", "could", "should", "just", "really", "quite", "very"
+]);
+
+const CONTRACTION_EXPANSIONS = {
+  "i'm": "i am",
+  "we're": "we are",
+  "you're": "you are",
+  "they're": "they are",
+  "he's": "he is",
+  "she's": "she is",
+  "it's": "it is",
+  "that's": "that is",
+  "there's": "there is",
+  "what's": "what is",
+  "let's": "let us",
+  "i've": "i have",
+  "we've": "we have",
+  "they've": "they have",
+  "i'd": "i would",
+  "we'd": "we would",
+  "they'd": "they would",
+  "i'll": "i will",
+  "we'll": "we will",
+  "they'll": "they will",
+  "don't": "do not",
+  "doesn't": "does not",
+  "didn't": "did not",
+  "won't": "will not",
+  "can't": "can not",
+  "cannot": "can not",
+  "isn't": "is not",
+  "aren't": "are not",
+  "wasn't": "was not",
+  "weren't": "were not",
+  "hasn't": "has not",
+  "haven't": "have not",
+  "hadn't": "had not",
+  "couldn't": "could not",
+  "wouldn't": "would not",
+  "shouldn't": "should not",
+  "mustn't": "must not"
+};
+
+const PREPOSITION_TOKENS = new Set([
+  "to", "on", "in", "at", "for", "with", "of", "by", "from", "about", "into",
+  "onto", "over", "under", "after", "before", "around", "through", "upon"
+]);
+
+const normalizePhraseTokens = (phrase) =>
+  String(phrase || "")
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[^a-z0-9'\s-]/g, " ")
+    .replace(/-/g, " ")
+    .split(/\s+/)
+    .map((w) => w.replace(/^'+|'+$/g, ""))
+    .filter(Boolean)
+    .filter((w) => !PHRASE_PLACEHOLDERS.has(w))
+    .flatMap((w) => (CONTRACTION_EXPANSIONS[w] || w).split(" "));
+
+const wordStems = (word) => {
+  const stems = new Set([word]);
+  if (INFLECTION_TO_BASE[word]) stems.add(INFLECTION_TO_BASE[word]);
+  if (IRREGULAR_FORMS[word]) stems.add(word);
+  const add = (w) => {
+    if (w && w.length >= 3) stems.add(w);
+  };
+  if (word.endsWith("ies") && word.length > 4) add(`${word.slice(0, -3)}y`);
+  if (word.endsWith("ied") && word.length > 4) add(`${word.slice(0, -3)}y`);
+  if (word.endsWith("ves") && word.length > 4) {
+    add(`${word.slice(0, -3)}f`);
+    add(`${word.slice(0, -3)}fe`);
+  }
+  if (word.endsWith("es") && word.length > 4) add(word.slice(0, -2));
+  if (word.endsWith("s") && !word.endsWith("ss") && word.length > 3) add(word.slice(0, -1));
+  if (word.endsWith("ed") && word.length > 4) {
+    const stem = word.slice(0, -2);
+    add(stem);
+    add(`${stem}e`);
+    if (/([bcdfgklmnprstvz])\1$/.test(stem)) add(stem.slice(0, -1));
+  }
+  if (word.endsWith("ing") && word.length > 5) {
+    const stem = word.slice(0, -3);
+    add(stem);
+    add(`${stem}e`);
+    if (/([bcdfgklmnprstvz])\1$/.test(stem)) add(stem.slice(0, -1));
+  }
+  return stems;
+};
+
+const wordsShareStem = (a, b) => {
+  if (a === b) return true;
+  const sa = wordStems(a);
+  const sb = wordStems(b);
+  for (const s of sa) {
+    if (sb.has(s)) return true;
+  }
+  return false;
+};
+
+const phraseMatchesText = (textTokens, phraseTokens) => {
+  const requiredTokens = phraseTokens.filter((token) => !PHRASE_OPTIONAL_TOKENS.has(token));
+  if (!requiredTokens.length) return false;
+  for (let start = 0; start < textTokens.length; start++) {
+    let cursor = start;
+    let matched = 0;
+    for (let tokenIndex = 0; tokenIndex < requiredTokens.length; tokenIndex++) {
+      const phraseToken = requiredTokens[tokenIndex];
+      const isFinalToken = tokenIndex === requiredTokens.length - 1;
+      let found = false;
+      let skipped = 0;
+      while (cursor < textTokens.length) {
+        if (wordsShareStem(textTokens[cursor], phraseToken)) {
+          found = true;
+          cursor += 1;
+          matched += 1;
+          break;
+        }
+        // A trailing preposition may be swapped naturally: circle back to -> circle back on
+        if (isFinalToken && PREPOSITION_TOKENS.has(phraseToken) && PREPOSITION_TOKENS.has(textTokens[cursor])) {
+          found = true;
+          cursor += 1;
+          matched += 1;
+          break;
+        }
+        if (!PHRASE_FILLERS.has(textTokens[cursor])) break;
+        skipped += 1;
+        if (skipped > 3) break;
+        cursor += 1;
+      }
+      if (!found) break;
+    }
+    if (matched === requiredTokens.length) return true;
+  }
+  return false;
+};
+
+const detectTargetInText = (text, item) => {
+  const textTokens = normalizePhraseTokens(text);
+  if (!textTokens.length) return false;
+  const candidates = [item.target, ...(Array.isArray(item.patterns) ? item.patterns : [])];
+  return candidates.some((candidate) => {
+    const phraseTokens = normalizePhraseTokens(candidate);
+    return phraseMatchesText(textTokens, phraseTokens);
+  });
+};
+
+const entryTokens = (target) =>
+  normalizePhraseTokens(target).filter((token) => !PHRASE_OPTIONAL_TOKENS.has(token));
+
+// Two targets refer to the same headword when they share every content word
+// after inflection handling: "give a heads-up" == "gave us heads up".
+const targetsAreSameEntry = (a, b) => {
+  const left = entryTokens(a);
+  const right = entryTokens(b);
+  if (!left.length || left.length !== right.length) return false;
+  return left.every((token, index) => wordsShareStem(token, right[index]));
+};
+
+const meaningsAreClose = (a, b) => {
+  const clean = (s) => String(s || "").replace(/[\s，。、；：,.;:()（）]/g, "");
+  const left = clean(a);
+  const right = clean(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (left.length >= 3 && right.length >= 3 && (left.includes(right) || right.includes(left))) return true;
+  return false;
+};
+
+const priorityRank = (p) => (p === "High" ? 3 : p === "Medium" ? 2 : p === "Low" ? 1 : 0);
+const higherPriority = (a, b) => (priorityRank(b) > priorityRank(a) ? b : a);
+
+const getAdaptiveExtractionLimits = (modeId, text) => {
+  const base = ANALYSIS_MODE_LIMITS[modeId] || ANALYSIS_MODE_LIMITS.balanced;
+  const len = String(text || "").trim().length;
+  const longInput = len > 1200;
+  const mediumInput = len > 500;
+  const itemMultiplier = longInput ? 1.8 : mediumInput ? 1.3 : 1;
+  const tokenMultiplier = longInput ? 2.4 : mediumInput ? 1.6 : 1;
+  return {
+    maxItems: Math.min(9, Math.max(base.maxItems, Math.round(base.maxItems * itemMultiplier))),
+    maxTokens: Math.min(5000, Math.round(base.maxTokens * tokenMultiplier))
+  };
+};
+
+const pickExtractedItems = (result) => {
+  if (!result) return [];
+  if (Array.isArray(result)) return result;
+  const keys = ["extractedItems", "items", "entries", "expressions", "results", "data"];
+  for (const key of keys) {
+    if (Array.isArray(result[key])) return result[key];
+  }
+  if (result.data && typeof result.data === "object") {
+    for (const key of keys) {
+      if (Array.isArray(result.data[key])) return result.data[key];
+    }
+  }
+  const values = Object.values(result);
+  const firstArray = values.find((v) => Array.isArray(v));
+  return Array.isArray(firstArray) ? firstArray : [];
+};
+
 const buildExtractionSchema = (mode) => {
   const properties = {
     target: { type: "STRING" },
@@ -526,6 +849,16 @@ export default function App() {
   );
   const [rawInputText, setRawInputText] = useState("");
   const [dumpManualTheme, setDumpManualTheme] = useState("高频核心库");
+  const [extractionFocus, setExtractionFocus] = useState("");
+  const [globalExtractionFocus, setGlobalExtractionFocus] = useState(
+    typeof SAVED_STATE?.globalExtractionFocus === "string" ? SAVED_STATE.globalExtractionFocus : ""
+  );
+  const [focusByTheme, setFocusByTheme] = useState(
+    SAVED_STATE?.focusByTheme && typeof SAVED_STATE.focusByTheme === "object"
+      ? SAVED_STATE.focusByTheme
+      : {}
+  );
+  const [isFocusPanelOpen, setIsFocusPanelOpen] = useState(false);
   const [isAnalyzingDump, setIsAnalyzingDump] = useState(false);
   const [analyzingSourceLabel, setAnalyzingSourceLabel] = useState(null);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
@@ -609,6 +942,7 @@ export default function App() {
         ]
   );
   const [chatInput, setChatInput] = useState("");
+  const chatInputRef = useRef(null);
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [hitTargets, setHitTargets] = useState({});
   const [expandedHintId, setExpandedHintId] = useState(null);
@@ -628,6 +962,7 @@ export default function App() {
     SAVED_STATE?.reviewData || (SAVED_ENTRY_MODE === "fresh" ? EMPTY_REVIEW_DATA : DEMO_REVIEW_DATA)
   );
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [reviewError, setReviewError] = useState(null);
   const [drillModeByCard, setDrillModeByCard] = useState({});
   const [drillInputs, setDrillInputs] = useState({});
   const [drillFeedbacks, setDrillFeedbacks] = useState({});
@@ -649,6 +984,14 @@ export default function App() {
       : Boolean(llmSettings.apiKey.trim());
   const currentAnalysisMode =
     ANALYSIS_MODES.find((m) => m.id === analysisMode) || ANALYSIS_MODES[1];
+  const themeFocusDefault = focusByTheme?.[dumpManualTheme] || "";
+  const focusSourceLabel = !extractionFocus.trim()
+    ? "未设置"
+    : extractionFocus.trim() === themeFocusDefault
+    ? "主题默认"
+    : extractionFocus.trim() === globalExtractionFocus.trim() && globalExtractionFocus.trim()
+    ? "全局默认"
+    : "仅本次";
 
   const requireApiKey = (actionLabel) => {
     if (hasApiKey) return true;
@@ -679,7 +1022,9 @@ export default function App() {
       reviewData,
       arenaConfig,
       backupHintDismissed,
-      messageTranslations
+      messageTranslations,
+      globalExtractionFocus,
+      focusByTheme
     };
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -703,8 +1048,16 @@ export default function App() {
     reviewData,
     arenaConfig,
     backupHintDismissed,
-    messageTranslations
+    messageTranslations,
+    globalExtractionFocus,
+    focusByTheme
   ]);
+
+  // Prefill the extraction focus with the theme default, then the global default
+  useEffect(() => {
+    const themeFocus = focusByTheme?.[dumpManualTheme];
+    setExtractionFocus(typeof themeFocus === "string" ? themeFocus : globalExtractionFocus);
+  }, [dumpManualTheme, focusByTheme, globalExtractionFocus]);
 
   // Time-based progress feedback while the model is working (real streamed progress is not exposed)
   useEffect(() => {
@@ -764,6 +1117,7 @@ export default function App() {
     setQaModalState(null);
     setQaInput("");
     setIsEvaluating(false);
+    setReviewError(null);
     setIsAnalyzingDump(false);
     setAnalyzingSourceLabel(null);
     setChatInput("");
@@ -930,12 +1284,94 @@ export default function App() {
       priorityReason: c.priorityReason || `根据当前 ${profile.cefr} 能力评估自动纳入重点提问`,
       createdAt: today,
       lastReviewedAt: "尚未复习",
-      patterns: c.patterns?.length ? c.patterns : [c.target.toLowerCase()]
+      patterns: c.patterns?.length ? c.patterns : [c.target.toLowerCase()],
+      senses: [],
+      extraContexts: []
     }));
 
-    setInboxItems((prev) => [...newItems, ...prev]);
-    setSelectedItemIds((prev) => [...newItems.map((i) => i.id), ...prev]);
-    triggerToast(`🎉 已成功拆解并加入 ${newItems.length} 条地道表达至 Inbox！`);
+    let addedCount = 0;
+    let sameSenseCount = 0;
+    let newSenseCount = 0;
+    const mergedNewIds = new Set();
+
+    const next = [...inboxItems];
+    newItems.forEach((item) => {
+      const existingIndex = next.findIndex((existing) =>
+        targetsAreSameEntry(existing.target, item.target)
+      );
+
+      if (existingIndex === -1) {
+        next.unshift(item);
+        addedCount += 1;
+        return;
+      }
+
+      const existing = next[existingIndex];
+      const mergedPatterns = Array.from(
+        new Set([...(existing.patterns || []), ...(item.patterns || [])])
+      );
+      const mergedTags = Array.from(new Set([...(existing.tags || []), ...(item.tags || [])]));
+
+      if (meaningsAreClose(existing.meaning, item.meaning)) {
+        const extraContexts = Array.from(
+          new Set([...(existing.extraContexts || []), item.rawInput].filter(Boolean))
+        );
+        next[existingIndex] = {
+          ...existing,
+          patterns: mergedPatterns,
+          tags: mergedTags,
+          extraContexts,
+          priority: higherPriority(existing.priority, item.priority)
+        };
+        sameSenseCount += 1;
+      } else {
+        const baseSenses =
+          existing.senses?.length
+            ? existing.senses
+            : [{ meaning: existing.meaning, usageNote: existing.usageNote, rawInput: existing.rawInput }];
+        const alreadyThere = baseSenses.some(
+          (sense) =>
+            meaningsAreClose(sense.meaning, item.meaning) &&
+            String(sense.usageNote || "").trim() === String(item.usageNote || "").trim()
+        );
+        const senses = alreadyThere
+          ? baseSenses
+          : [
+              ...baseSenses,
+              {
+                meaning: item.meaning,
+                usageNote: item.usageNote,
+                rawInput: item.rawInput,
+                cefr: item.cefr
+              }
+            ];
+        if (!alreadyThere) newSenseCount += 1;
+        next[existingIndex] = {
+          ...existing,
+          senses,
+          extraContexts: Array.from(
+            new Set([...(existing.extraContexts || []), item.rawInput].filter(Boolean))
+          ),
+          patterns: mergedPatterns,
+          tags: mergedTags,
+          priority: higherPriority(existing.priority, item.priority)
+        };
+      }
+      mergedNewIds.add(item.id);
+    });
+
+    setInboxItems(next);
+
+    const createdIds = newItems.filter((item) => !mergedNewIds.has(item.id)).map((item) => item.id);
+    if (createdIds.length > 0) {
+      setSelectedItemIds((prev) => [...createdIds, ...prev]);
+    }
+
+    const parts = [];
+    if (addedCount > 0) parts.push(`新增 ${addedCount} 条`);
+    if (sameSenseCount > 0) parts.push(`合并同义 ${sameSenseCount} 条`);
+    if (newSenseCount > 0) parts.push(`合并新增释义 ${newSenseCount} 条`);
+    triggerToast(`🎉 已入库：${parts.join("，") || "没有变化"}`);
   };
 
   const triggerExtractionForSnippet = async (rawSnippet, sourceLabel = "快捷收录") => {
@@ -944,7 +1380,8 @@ export default function App() {
     if (!requireApiKey("开始 AI 拆解")) return false;
 
     const mode = ANALYSIS_MODES.find((m) => m.id === analysisMode) || ANALYSIS_MODES[1];
-    const limits = ANALYSIS_MODE_LIMITS[mode.id] || ANALYSIS_MODE_LIMITS.balanced;
+    const limits = getAdaptiveExtractionLimits(mode.id, cleanText);
+    const focusText = extractionFocus.trim();
     setIsAnalyzingDump(true);
     setAnalyzingSourceLabel(sourceLabel);
     setAnalyzeProgress(8);
@@ -952,9 +1389,9 @@ export default function App() {
     try {
       const schema = buildExtractionSchema(mode.id);
       const modeInstruction = {
-        economy: "Mode: 节省 (economy). Extract AT MOST 2 items, only the most reusable ones. meaning <= 22 Chinese characters, usageNote <= 30 Chinese characters. Do not restate the sentence.",
-        balanced: "Mode: 平衡 (balanced). Extract 2-3 items. meaning <= 40 Chinese characters, usageNote <= 60 Chinese characters with one collocation hint.",
-        detailed: "Mode: 详尽 (detailed). Extract 3-5 items, richest coverage. usageNote may include collocations, register and one short example."
+        economy: `Mode: 节省 (economy). Extract AT MOST ${limits.maxItems} items, only the most reusable ones. meaning <= 22 Chinese characters, usageNote <= 30 Chinese characters. Do not restate the sentence.`,
+        balanced: `Mode: 平衡 (balanced). Extract 2-${limits.maxItems} items. meaning <= 40 Chinese characters, usageNote <= 60 Chinese characters with one collocation hint.`,
+        detailed: `Mode: 详尽 (detailed). Extract 3-${limits.maxItems} items, richest coverage. usageNote may include collocations, register and one short example.`
       }[mode.id];
 
       const fieldInstruction = {
@@ -963,11 +1400,20 @@ export default function App() {
         detailed: "Return per item: target, category, cefr, meaning, usageNote, priority, priorityReason, aiTheme, tags, patterns (1-3 lowercase inflected forms)."
       }[mode.id];
 
+      const longInputInstruction =
+        cleanText.length > 900
+          ? "\nThe source text is long: prioritise the highest-value entries for the learner's level and do not try to cover every sentence. Keep the JSON complete and never truncate an item."
+          : "";
+
+      const focusInstruction = focusText
+        ? `\nUSER-DEFINED FOCUS (must follow): only extract entries that serve this goal: "${focusText}". If nothing in the text fits, return an empty extractedItems array.`
+        : "";
+
       const prompt = `Extract dictionary-style English learning entries from this text (Source: ${sourceLabel}):
 "${cleanText}"
 
 Learner CEFR: ${profile.cefr} (${profile.cefrTitle}).
-${modeInstruction}
+${modeInstruction}${longInputInstruction}${focusInstruction}
 
 DICTIONARY NORMALIZATION RULES (highest priority):
 1. Every target must be in lemma/dictionary form: base verb with no -ed/-ing/-s, singular noun unless the expression is fixed plural, and no tense, aspect or voice marker.
@@ -992,21 +1438,25 @@ ${fieldInstruction}`;
         { maxTokens: limits.maxTokens, disableThinking: true }
       );
 
-      const seen = new Set();
-      const rawList = Array.isArray(result?.extractedItems) ? result.extractedItems : [];
+      const acceptedTargets = [];
+      const rawList = pickExtractedItems(result);
       const normalized = rawList
+        .filter((item) => item && typeof item === "object")
         .map((item) => ({ ...item, target: sanitizeExtractionTarget(item.target) }))
         .filter((item) => item.target && isUsefulExtractionTarget(item.target))
         .filter((item) => {
-          const key = item.target.toLowerCase();
-          if (seen.has(key)) return false;
-          seen.add(key);
+          if (acceptedTargets.some((target) => targetsAreSameEntry(target, item.target))) return false;
+          acceptedTargets.push(item.target);
           return true;
         })
         .slice(0, limits.maxItems);
 
       if (normalized.length === 0) {
-        throw new Error("AI 没有返回可用的地道表达，请换一句再试");
+        throw new Error(
+          focusText
+            ? "AI 没有返回符合自定义方向的地道表达，可放宽方向或换一句再试"
+            : "AI 没有返回可用的地道表达，请换一句再试"
+        );
       }
 
       const candidates = normalized.map((item, idx) => ({
@@ -1063,6 +1513,13 @@ ${fieldInstruction}`;
     );
     commitCandidatesToInbox(chosen);
     setExtractionModalData(null);
+  };
+
+  const handleRetryExtraction = () => {
+    if (!extractionModalData) return;
+    const { rawText, sourceLabel } = extractionModalData;
+    setExtractionModalData(null);
+    triggerExtractionForSnippet(rawText, sourceLabel);
   };
 
   // ==========================================
@@ -1416,36 +1873,108 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [activeTab, showLanding]);
 
-  // Text selection listener for Arena & Review
+  // Text selection listener for Arena & Review (mouse + touch)
   useEffect(() => {
-    const handleMouseUp = () => {
+    let settleTimer = null;
+
+    const isEditableNode = (node) => {
+      let el = node && node.nodeType === 3 ? node.parentElement : node;
+      while (el && el !== document.body) {
+        const tag = el.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable) return true;
+        el = el.parentElement;
+      }
+      return false;
+    };
+
+    const captureSelection = () => {
       if (activeTab !== "arena" && activeTab !== "review") {
+        setSelectionPopup(null);
+        return;
+      }
+      // A long-press on a bubble is reserved for translation, not text selection
+      if (longPressTimerRef.current && lastPointerTypeRef.current === "touch") {
         setSelectionPopup(null);
         return;
       }
       const sel = window.getSelection();
       const text = sel ? sel.toString().trim() : "";
-      if (text.length >= 3 && text.length <= 240 && /[a-zA-Z]/.test(text)) {
-        try {
-          const range = sel.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          if (rect.width > 0) {
-            setSelectionPopup({
-              text,
-              x: Math.min(window.innerWidth - 300, Math.max(8, rect.left)),
-              y: Math.max(16, rect.top - 48)
-            });
-          }
-        } catch (e) {
+      if (
+        !sel ||
+        !text ||
+        text.length < 3 ||
+        text.length > 240 ||
+        !/[a-zA-Z]/.test(text) ||
+        sel.rangeCount === 0 ||
+        isEditableNode(sel.anchorNode) ||
+        isEditableNode(sel.focusNode)
+      ) {
+        setSelectionPopup(null);
+        return;
+      }
+      try {
+        const rect = sel.getRangeAt(0).getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) {
           setSelectionPopup(null);
+          return;
         }
-      } else {
+        setSelectionPopup({
+          text,
+          isCoarse: Boolean(window.matchMedia?.("(pointer: coarse)")?.matches),
+          x: Math.min(window.innerWidth - 300, Math.max(8, rect.left)),
+          y: Math.max(16, rect.top - 48)
+        });
+      } catch (e) {
         setSelectionPopup(null);
       }
     };
+
+    const scheduleCapture = (delay) => {
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(captureSelection, delay);
+    };
+
+    const handlePointerDown = (e) => {
+      lastPointerTypeRef.current = e.pointerType || "mouse";
+    };
+    const handleMouseUp = () => {
+      if (lastPointerTypeRef.current === "touch") return;
+      scheduleCapture(0);
+    };
+    const handleTouchEnd = () => scheduleCapture(180);
+    const handleSelectionChange = () => {
+      if (lastPointerTypeRef.current !== "touch") return;
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      scheduleCapture(350);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("mouseup", handleMouseUp);
-    return () => document.removeEventListener("mouseup", handleMouseUp);
+    document.addEventListener("touchend", handleTouchEnd);
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => {
+      if (settleTimer) clearTimeout(settleTimer);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("touchend", handleTouchEnd);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
   }, [activeTab]);
+
+  const applySelectionAction = (action) => {
+    if (!selectionPopup) return;
+    const selectedText = selectionPopup.text;
+    if (action === "extract") {
+      triggerExtractionForSnippet(selectedText, "划词收录");
+    } else if (action === "note") {
+      setNoteContent((prev) => (prev ? `${prev}\n${selectedText}` : selectedText));
+      setIsNotesMinimized(false);
+      triggerToast("📝 已摘录至右下角随手记 Notes");
+    }
+    window.getSelection?.()?.removeAllRanges?.();
+    setSelectionPopup(null);
+  };
 
   // ==========================================
   // INBOX CRUD, BATCH & FILTER HANDLERS
@@ -1456,6 +1985,25 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
     const textToAnalyze = rawInputText.trim();
     const ok = await triggerExtractionForSnippet(textToAnalyze, "Inbox 随手记");
     if (ok) setRawInputText("");
+  };
+
+  const saveFocusForTheme = () => {
+    const value = extractionFocus.trim();
+    setFocusByTheme((prev) => {
+      const next = { ...prev };
+      if (value) next[dumpManualTheme] = value;
+      else delete next[dumpManualTheme];
+      return next;
+    });
+    triggerToast(
+      value ? `🎯 已保存「${dumpManualTheme}」的默认拆解方向` : `已清除「${dumpManualTheme}」的默认拆解方向`
+    );
+  };
+
+  const saveGlobalFocus = () => {
+    const value = extractionFocus.trim();
+    setGlobalExtractionFocus(value);
+    triggerToast(value ? "🎯 已保存全局默认拆解方向" : "已清除全局默认拆解方向");
   };
 
   const handleDeleteSingleItem = (id, e) => {
@@ -1667,18 +2215,8 @@ Return JSON with title, aiRole, userRole, difficulty, context, openingLine.`;
     }
   };
 
-  const detectHitsInMessage = (text, activeTargetItems) => {
-    const lower = text.toLowerCase();
-    const newlyHit = [];
-    activeTargetItems.forEach((item) => {
-      const patterns = item.patterns || [item.target.toLowerCase()];
-      const isMatched = patterns.some((p) => lower.includes(p.toLowerCase()));
-      if (isMatched) {
-        newlyHit.push(item);
-      }
-    });
-    return newlyHit;
-  };
+  const detectHitsInMessage = (text, activeTargetItems) =>
+    activeTargetItems.filter((item) => detectTargetInText(text, item));
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() || isAiTyping) return;
@@ -1831,6 +2369,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
       longPressTimerRef.current = null;
       longPressOriginRef.current = null;
       window.getSelection?.()?.removeAllRanges?.();
+      setSelectionPopup(null);
       handleTranslateMessage(msg);
     }, 550);
   };
@@ -1841,6 +2380,17 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
     if (Math.abs(event.clientX - origin.x) > 10 || Math.abs(event.clientY - origin.y) > 10) {
       cancelBubbleLongPress();
     }
+  };
+
+  const appendTargetToChat = (target) => {
+    if (!target) return;
+    setChatInput((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) return `${target} `;
+      if (trimmed.toLowerCase().includes(target.toLowerCase())) return prev;
+      return `${prev.replace(/\s+$/, "")} ${target} `;
+    });
+    setTimeout(() => chatInputRef.current?.focus(), 0);
   };
 
   const handleGiveMeACue = () => {
@@ -1900,39 +2450,330 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
     triggerToast("✨ 已载入完整演示对话并生成【原句升华与弱点特训】报告！");
   };
 
-  const handleFinishAndEvaluate = () => {
-    setIsEvaluating(true);
+  const handleFinishAndEvaluate = async () => {
     setActiveTab("review");
-    setTimeout(() => {
-      setReviewData(DEMO_REVIEW_DATA);
+    setReviewError(null);
+
+    const dialogue = messages.filter((m) => !m.isCue && String(m.text || "").trim());
+    const userMessages = dialogue.filter((m) => m.sender === "user");
+    if (userMessages.length === 0) {
+      triggerToast("⚠️ 本局还没有你的发言，先聊上几句再生成复盘吧");
+      setActiveTab("arena");
+      return;
+    }
+    if (!requireApiKey("生成实战复盘")) {
+      setActiveTab("arena");
+      return;
+    }
+
+    const targetItems = inboxItems.filter((i) => scenario.targetIds?.includes(i.id));
+    const hitCount = targetItems.filter((i) => hitTargets[i.id]?.hit).length;
+    const totalTargets = targetItems.length;
+
+    const transcript = dialogue
+      .slice(-30)
+      .map((m) => `${m.sender === "user" ? scenario.userRole : scenario.aiRole} (${m.sender === "user" ? "YOU" : "AI"}): ${m.text}`)
+      .join("\n");
+
+    const targetLines =
+      targetItems.length > 0
+        ? targetItems
+            .map((i) => {
+              const hit = hitTargets[i.id];
+              return `- id=${i.id} | "${i.target}" | ${i.meaning} | ${
+                hit?.hit ? `HIT, used in: "${hit.sentence}"` : "MISSED"
+              }`;
+            })
+            .join("\n")
+        : "(This round had no preset target expressions; evaluate free conversation only.)";
+
+    const reviewSchema = {
+      type: "OBJECT",
+      properties: {
+        overallScore: { type: "INTEGER" },
+        scoreDelta: { type: "INTEGER" },
+        cefrProgress: { type: "STRING" },
+        assessmentSummary: { type: "STRING" },
+        dimensionChanges: {
+          type: "OBJECT",
+          properties: {
+            lexical: { type: "STRING" },
+            grammar: { type: "STRING" },
+            pragmatic: { type: "STRING" },
+            idiomatic: { type: "STRING" }
+          },
+          required: ["lexical", "grammar", "pragmatic", "idiomatic"]
+        },
+        sentenceUpgrades: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              userOriginal: { type: "STRING" },
+              targetUsed: { type: "STRING" },
+              anchoredText: { type: "STRING" },
+              diffExplanation: { type: "STRING" },
+              nativeText: { type: "STRING" },
+              coachNote: { type: "STRING" }
+            },
+            required: ["userOriginal", "targetUsed", "anchoredText", "diffExplanation", "nativeText", "coachNote"]
+          }
+        },
+        weaknessDrills: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              targetId: { type: "STRING" },
+              target: { type: "STRING" },
+              meaning: { type: "STRING" },
+              status: { type: "STRING" },
+              reason: { type: "STRING" },
+              originalUserSentence: { type: "STRING" },
+              rewriteHint: { type: "STRING" },
+              rewriteIdeal: { type: "STRING" },
+              trapPrompt: { type: "STRING" },
+              trapInstruction: { type: "STRING" },
+              trapIdeal: { type: "STRING" }
+            },
+            required: [
+              "targetId",
+              "target",
+              "meaning",
+              "status",
+              "reason",
+              "originalUserSentence",
+              "rewriteHint",
+              "rewriteIdeal",
+              "trapPrompt",
+              "trapInstruction",
+              "trapIdeal"
+            ]
+          }
+        }
+      },
+      required: ["overallScore", "scoreDelta", "cefrProgress", "assessmentSummary", "dimensionChanges", "sentenceUpgrades", "weaknessDrills"]
+    };
+
+    const prompt = `Evaluate this role-play practice session and produce a review report based ONLY on what the learner actually wrote.
+
+SCENARIO
+Title: ${scenario.title}
+AI character: ${scenario.aiRole}
+Learner character: ${scenario.userRole}
+Setting: ${scenario.context}
+
+TARGET EXPRESSIONS THIS ROUND (${hitCount}/${totalTargets} hit):
+${targetLines}
+
+FULL TRANSCRIPT
+${transcript}
+
+RULES
+1. Quote the learner's utterances verbatim. Never invent, merge or "improve" a sentence the learner did not write.
+2. sentenceUpgrades: pick 1-3 of the learner's actual sentences that are worth polishing (prefer ones containing a target expression). anchoredText keeps at least 80% of the learner's original words and structure; nativeText is the fully idiomatic upgrade. All explanations in Simplified Chinese.
+3. weaknessDrills: cover every expression marked MISSED (max 3). If all targets were hit, pick up to 2 targets that were used awkwardly or could be more natural, and set status to "Needs reinforcement 已踩点但可更自然". targetId MUST be copied exactly from the list above. originalUserSentence must be an actual learner sentence that tried to express that idea (or the most relevant learner sentence). trapPrompt is one in-character line from the AI character that baits the target expression.
+4. Scores: overallScore reflects this session (0-100), scoreDelta is the change applied to the learner's current level (between -5 and +8). dimensionChanges are short signed strings like "+3" or "-1".
+5. assessmentSummary: 2-3 Chinese sentences, name the exact expressions the learner used or missed.
+6. If the learner's sentence is already natural, say so in diffExplanation instead of faking a big upgrade.
+7. Never mention AI, models or prompts inside quoted role-play lines.`;
+
+    setIsEvaluating(true);
+    try {
+      const result = await callGeminiAPI(
+        prompt,
+        "You are a strict but encouraging English speaking coach reviewing a real role-play transcript. You only quote sentences the learner actually produced and you never fabricate practice data.",
+        reviewSchema,
+        { maxTokens: 3200, disableThinking: true }
+      );
+
+      const clampScore = (n, fallback) => {
+        const num = Number(n);
+        return Number.isFinite(num) ? Math.min(100, Math.max(0, Math.round(num))) : fallback;
+      };
+
+      const oldScore = profile.overallScore;
+      const rawDelta = Number(result?.scoreDelta);
+      const delta = Number.isFinite(rawDelta) ? Math.min(8, Math.max(-5, Math.round(rawDelta))) : 0;
+      const newScore = clampScore(result?.overallScore, Math.min(100, Math.max(0, oldScore + delta)));
+
+      const dims = result?.dimensionChanges || {};
+      const dimensionChanges = {
+        lexical: String(dims.lexical || "+0"),
+        grammar: String(dims.grammar || "+0"),
+        pragmatic: String(dims.pragmatic || "+0"),
+        idiomatic: String(dims.idiomatic || "+0")
+      };
+
+      const upgrades = (Array.isArray(result?.sentenceUpgrades) ? result.sentenceUpgrades : [])
+        .filter((u) => u && String(u.userOriginal || "").trim() && String(u.anchoredText || "").trim())
+        .slice(0, 3)
+        .map((u, idx) => ({
+          id: `up-${Date.now()}-${idx}`,
+          turnIndex: idx + 1,
+          userOriginal: String(u.userOriginal).trim(),
+          targetUsed: String(u.targetUsed || "").trim(),
+          anchoredPolish: {
+            text: String(u.anchoredText || "").trim(),
+            diffExplanation: String(u.diffExplanation || "").trim()
+          },
+          nativeUpgrade: {
+            text: String(u.nativeText || u.anchoredText || "").trim(),
+            coachNote: String(u.coachNote || "").trim()
+          }
+        }));
+
+      const drills = (Array.isArray(result?.weaknessDrills) ? result.weaknessDrills : [])
+        .map((d) => {
+          const matched =
+            targetItems.find((i) => i.id === d.targetId) ||
+            targetItems.find((i) => targetsAreSameEntry(i.target, d.target || ""));
+          if (!matched) return null;
+          return {
+            id: `drill-${Date.now()}-${matched.id}`,
+            targetId: matched.id,
+            target: matched.target,
+            meaning: matched.meaning,
+            status: String(d.status || "Missed (本局未踩点)").trim(),
+            reason: String(d.reason || "").trim(),
+            modeA_Rewrite: {
+              title: "原句锚定重造 (Rewrite Your Own Sentence)",
+              originalUserSentence: String(d.originalUserSentence || userMessages[userMessages.length - 1].text).trim(),
+              hint: String(d.rewriteHint || `保持原句意思，用上「${matched.target}」重新表达：`).trim(),
+              idealAnswer: String(d.rewriteIdeal || "").trim()
+            },
+            modeB_Trap: {
+              title: "AI 精准挖坑快问快答 (One-Shot Context Trap)",
+              aiPrompt: String(d.trapPrompt || "").trim(),
+              instruction: String(d.trapInstruction || `请用一句话回复，并自然用上「${matched.target}」：`).trim(),
+              idealAnswer: String(d.trapIdeal || "").trim()
+            }
+          };
+        })
+        .filter(Boolean)
+        .filter((drill, idx, arr) => arr.findIndex((d) => d.targetId === drill.targetId) === idx)
+        .slice(0, 3);
+
+      const nextReview = {
+        isDemo: false,
+        overallScore: newScore,
+        hitCount,
+        totalTargets,
+        proficiencyUpdate: {
+          oldScore,
+          newScore,
+          cefrProgress: String(result?.cefrProgress || "").trim(),
+          dimensionChanges,
+          assessmentSummary: String(result?.assessmentSummary || "").trim()
+        },
+        sentenceUpgrades: upgrades,
+        weaknessDrills: drills
+      };
+
+      setReviewData(nextReview);
+      setProfile((prev) => {
+        const nextDims = { ...prev.dimensions };
+        Object.keys(dimensionChanges).forEach((key) => {
+          if (!nextDims[key]) return;
+          const change = parseInt(dimensionChanges[key], 10) || 0;
+          nextDims[key] = {
+            ...nextDims[key],
+            score: Math.min(100, Math.max(0, nextDims[key].score + change)),
+            delta: change
+          };
+        });
+        return {
+          ...prev,
+          overallScore: newScore,
+          dimensions: nextDims,
+          aiStrategyNote: nextReview.proficiencyUpdate.assessmentSummary || prev.aiStrategyNote
+        };
+      });
+      setDrillInputs({});
+      setDrillFeedbacks({});
+      setDrillModeByCard({});
+    } catch (err) {
+      const reason = formatAiError(err);
+      setReviewError(reason);
+      triggerToast(`⚠️ 复盘生成失败：${reason}`);
+      if (/API Key|未配置/i.test(reason)) setShowSettingsModal(true);
+    } finally {
       setIsEvaluating(false);
-    }, 600);
+    }
   };
 
-  const handleCheckDrill = (drill) => {
+  const handleCheckDrill = async (drill) => {
     const userAns = (drillInputs[drill.id] || "").trim();
     if (!userAns) return;
+    if (!requireApiKey("提交特训批改")) return;
     const mode = drillModeByCard[drill.id] || "rewrite";
     const ideal = mode === "rewrite" ? drill.modeA_Rewrite.idealAnswer : drill.modeB_Trap.idealAnswer;
+    const task =
+      mode === "rewrite"
+        ? `Original learner sentence: "${drill.modeA_Rewrite.originalUserSentence}"\nTask: rewrite it naturally using the target expression.`
+        : `One-shot prompt: ${drill.modeB_Trap.aiPrompt}\nTask: reply in one sentence using the target expression.`;
+    const targetItem = inboxItems.find((item) => item.id === drill.targetId);
 
-    const today = getTodayDateStr();
-    setInboxItems((prev) =>
-      prev.map((it) =>
-        it.id === drill.targetId
-          ? { ...it, lastReviewedAt: today, mastery: Math.min(3, it.mastery + 1) }
-          : it
-      )
-    );
+    setDrillFeedbacks((prev) => ({ ...prev, [drill.id]: { loading: true } }));
+    try {
+      const result = await callGeminiAPI(
+        `Grade one English drill attempt.
 
-    setDrillFeedbacks((prev) => ({
-      ...prev,
-      [drill.id]: {
+TARGET EXPRESSION: "${drill.target}" (${drill.meaning})
+USAGE NOTE: ${targetItem?.usageNote || ""}
+${task}
+LEARNER ANSWER: "${userAns}"
+REFERENCE ANSWER: "${ideal}"
+
+Judge only: (1) is the target expression used correctly and naturally, (2) is the sentence grammatical and appropriate for the scene. Accept minor paraphrases and different but valid contexts. Do not require matching the reference answer.
+Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplified Chinese (1-2 sentences naming one concrete strength and one fix), correctedSentence (a natural polished version of the learner's own answer), tip (one short Chinese takeaway, may be empty).`,
+        "You are an experienced ESL speaking coach grading a single drill attempt fairly and specifically.",
+        {
+          type: "OBJECT",
+          properties: {
+            score: { type: "INTEGER" },
+            passed: { type: "BOOLEAN" },
+            comment: { type: "STRING" },
+            correctedSentence: { type: "STRING" },
+            tip: { type: "STRING" }
+          },
+          required: ["score", "passed", "comment", "correctedSentence", "tip"]
+        },
+        { maxTokens: 700, disableThinking: true }
+      );
+
+      const score = Math.min(100, Math.max(0, Math.round(Number(result?.score) || 0)));
+      const passed = Boolean(result?.passed) && score >= 70;
+      const feedback = {
         loading: false,
-        score: 95,
-        comment: `太棒了！你成功将「${drill.target}」自然融入了你的原句语境中，熟练度已 +1 并更新今日复习记录！`,
-        anchoredFix: ideal
+        passed,
+        score,
+        comment: String(result?.comment || "").trim(),
+        anchoredFix: String(result?.correctedSentence || ideal).trim(),
+        tip: String(result?.tip || "").trim()
+      };
+      setDrillFeedbacks((prev) => ({ ...prev, [drill.id]: feedback }));
+
+      if (passed) {
+        const today = getTodayDateStr();
+        setInboxItems((prev) =>
+          prev.map((it) =>
+            it.id === drill.targetId
+              ? { ...it, lastReviewedAt: today, mastery: Math.min(3, it.mastery + 1) }
+              : it
+          )
+        );
       }
-    }));
+    } catch (err) {
+      const reason = formatAiError(err);
+      setDrillFeedbacks((prev) => {
+        const next = { ...prev };
+        delete next[drill.id];
+        return next;
+      });
+      triggerToast(`⚠️ 批改失败：${reason}`);
+      if (/API Key|未配置/i.test(reason)) setShowSettingsModal(true);
+    }
   };
 
   const handleTestApiConnection = async () => {
@@ -2400,18 +3241,17 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
         </div>
       )}
 
-      {/* Selection Popup */}
+      {/* Selection Popup — desktop floats near the selection */}
       {selectionPopup && (
         <div
           style={{ left: `${selectionPopup.x}px`, top: `${selectionPopup.y}px` }}
-          className="fixed z-50 bg-slate-900 border border-indigo-500 shadow-2xl rounded-xl p-1.5 flex items-center gap-1.5"
+          className="hidden sm:flex fixed z-50 bg-slate-900 border border-indigo-500 shadow-2xl rounded-xl p-1.5 items-center gap-1.5"
         >
           <button
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              triggerExtractionForSnippet(selectionPopup.text, "划词收录");
-              setSelectionPopup(null);
+              applySelectionAction("extract");
             }}
             className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1 shadow"
           >
@@ -2419,19 +3259,60 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             <span>+ AI 拆解收入 Inbox</span>
           </button>
           <button
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setNoteContent((prev) => (prev ? `${prev}\n${selectionPopup.text}` : selectionPopup.text));
-              setIsNotesMinimized(false);
-              setSelectionPopup(null);
-              triggerToast("📝 已摘录至右下角随手记 Notes");
+              applySelectionAction("note");
             }}
             className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-semibold flex items-center gap-1"
           >
             <StickyNote className="w-3.5 h-3.5" />
             <span>记入 Notes</span>
           </button>
+        </div>
+      )}
+
+      {/* Selection Bar — mobile thumb-friendly fixed bar above the bottom nav */}
+      {selectionPopup && (
+        <div
+          className="sm:hidden fixed inset-x-2 z-50 bg-slate-900/98 backdrop-blur border border-indigo-500/70 shadow-2xl rounded-2xl p-2 space-y-1.5"
+          style={{ bottom: "calc(env(safe-area-inset-bottom) + 64px)" }}
+        >
+          <div className="text-[10px] text-slate-400 px-1 truncate">已选中：{selectionPopup.text}</div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                applySelectionAction("extract");
+              }}
+              className="flex-1 px-2 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold flex items-center justify-center gap-1"
+            >
+              <BookmarkPlus className="w-3.5 h-3.5" />
+              <span>拆解收入 Inbox</span>
+            </button>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                applySelectionAction("note");
+              }}
+              className="flex-1 px-2 py-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold flex items-center justify-center gap-1"
+            >
+              <StickyNote className="w-3.5 h-3.5" />
+              <span>记入 Notes</span>
+            </button>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                applySelectionAction("cancel");
+              }}
+              className="px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-semibold"
+            >
+              取消
+            </button>
+          </div>
         </div>
       )}
 
@@ -2671,6 +3552,71 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                       <span className="text-[10px] text-slate-500">{currentAnalysisMode.summary}</span>
                     </div>
                     <p className="text-[10px] text-slate-500 leading-relaxed">{currentAnalysisMode.desc}</p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/60">
+                    <button
+                      type="button"
+                      onClick={() => setIsFocusPanelOpen(!isFocusPanelOpen)}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                    >
+                      <span className="flex items-center gap-1.5 text-slate-300">
+                        <Target className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="font-semibold">拆解方向（可选）</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
+                            extractionFocus.trim()
+                              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                              : "bg-slate-800 text-slate-400 border-slate-700"
+                          }`}
+                        >
+                          {focusSourceLabel}
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-slate-500">{isFocusPanelOpen ? "收起" : "设置"}</span>
+                    </button>
+                    {isFocusPanelOpen && (
+                      <div className="px-3 pb-3 space-y-2 border-t border-slate-800 pt-2">
+                        <input
+                          type="text"
+                          value={extractionFocus}
+                          onChange={(e) => setExtractionFocus(e.target.value)}
+                          placeholder="例如：只拆商务会议里能直接复用的话术；或只关注带有情绪的委婉表达"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        />
+                        <p className="text-[10px] text-slate-500 leading-relaxed">
+                          开启后 AI 只拆符合这个方向的内容，不符合就返回空结果。可只用于本次，也可保存为「{dumpManualTheme}」或全局默认。
+                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={saveFocusForTheme}
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-indigo-300 font-semibold"
+                          >
+                            存为「{dumpManualTheme}」默认
+                          </button>
+                          <button
+                            type="button"
+                            onClick={saveGlobalFocus}
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-emerald-300 font-semibold"
+                          >
+                            设为全局默认
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExtractionFocus("")}
+                            className="px-2.5 py-1 rounded-lg text-[11px] text-slate-400 hover:text-white"
+                          >
+                            清除
+                          </button>
+                        </div>
+                        {themeFocusDefault && (
+                          <p className="text-[10px] text-slate-500">
+                            当前主题已有默认方向，切换主题时会自动带出。
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {isAddingTheme && (
@@ -3105,6 +4051,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                                       🤖 {item.aiTheme}
                                     </span>
                                   )}
+                                  {item.extraContexts?.length > 1 && (
+                                    <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                      🔗 合并 {item.extraContexts.length} 段语境
+                                    </span>
+                                  )}
                                 </div>
 
                                 {/* Quick Individual Controls & Lightbulb Q&A */}
@@ -3193,6 +4144,24 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                                     </span>
                                   </div>
                                 )}
+                                {item.senses?.length > 1 && (
+                                  <div className="space-y-1.5 pt-1">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                                      其他释义 ({item.senses.length - 1})
+                                    </span>
+                                    {item.senses.slice(1).map((sense, senseIdx) => (
+                                      <div
+                                        key={senseIdx}
+                                        className="text-xs bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 space-y-0.5"
+                                      >
+                                        <p className="text-slate-100 font-semibold">{sense.meaning}</p>
+                                        {sense.usageNote && (
+                                          <p className="text-slate-400 leading-relaxed">{sense.usageNote}</p>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                                 {item.priorityReason && (
                                   <div className="text-[11px] text-amber-300/90 flex items-center gap-1.5 pt-0.5">
                                     <Target className="w-3 h-3 text-amber-400 shrink-0" />
@@ -3207,6 +4176,20 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                                   原始输入定位 (Original Context):
                                 </span>
                                 {renderSingleCardRawHighlight(item.rawInput, item)}
+                                {item.extraContexts?.length > 1 &&
+                                  item.extraContexts
+                                    .filter((ctx) => ctx !== item.rawInput)
+                                    .map((ctx, ctxIdx) => (
+                                      <div
+                                        key={ctxIdx}
+                                        className="mt-1.5 pt-1.5 border-t border-slate-800/80 text-slate-400"
+                                      >
+                                        <span className="text-[10px] text-emerald-400/80 block mb-0.5">
+                                          合并语境 #{ctxIdx + 2}：
+                                        </span>
+                                        {ctx}
+                                      </div>
+                                    ))}
                               </div>
 
                               {/* Dates & Tags Footer */}
@@ -3505,6 +4488,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     已点亮 {Object.keys(hitTargets).length} / {activeTargetItems.length}
                   </span>
                 </div>
+                <p className="text-[11px] text-slate-500 -mt-2 mb-2">点击目标表达可直接填入输入框</p>
 
                 <div className="space-y-2.5">
                   {activeTargetItems.length === 0 && (
@@ -3524,10 +4508,16 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                             : "bg-slate-950 border-slate-800"
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className={`font-bold text-sm ${isHit ? "text-emerald-300" : "text-white"}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <button
+                            onClick={() => appendTargetToChat(item.target)}
+                            title="点击填入输入框"
+                            className={`text-left font-bold text-sm underline-offset-2 hover:underline ${
+                              isHit ? "text-emerald-300" : "text-white"
+                            }`}
+                          >
                             {item.target}
-                          </span>
+                          </button>
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => setExpandedHintId(isHintExpanded ? null : item.id)}
@@ -3738,17 +4728,18 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   {activeTargetItems.map((item) => {
                     const isHit = Boolean(hitTargets[item.id]?.hit);
                     return (
-                      <span
+                      <button
                         key={item.id}
-                        className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full border font-semibold whitespace-nowrap ${
+                        onClick={() => appendTargetToChat(item.target)}
+                        className={`shrink-0 text-[11px] px-2 py-1 rounded-full border font-semibold whitespace-nowrap active:scale-95 transition ${
                           isHit
                             ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
                             : "bg-slate-900 border-slate-700 text-slate-300"
                         }`}
                       >
-                        {isHit ? "✓ " : ""}
+                        {isHit ? "✓ " : "+ "}
                         {item.target}
-                      </span>
+                      </button>
                     );
                   })}
                 </div>
@@ -3756,6 +4747,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
 
               <div className="p-3 sm:p-4 bg-slate-950 border-t border-slate-800 flex items-center gap-2 sm:gap-3">
                 <input
+                  ref={chatInputRef}
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
@@ -3785,6 +4777,30 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-3">
                 <RefreshCw className="w-8 h-8 animate-spin text-indigo-400 mx-auto" />
                 <h3 className="text-lg font-bold text-white">AI 正在生成基于你原词原句的升华对比报告...</h3>
+              </div>
+            ) : reviewError ? (
+              <div className="bg-slate-900 border border-rose-500/40 rounded-2xl p-8 sm:p-12 text-center space-y-3">
+                <Award className="w-9 h-9 text-rose-400 mx-auto" />
+                <h3 className="text-lg font-bold text-white">复盘生成失败</h3>
+                <p className="text-xs text-rose-200/80 max-w-md mx-auto leading-relaxed">{reviewError}</p>
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    onClick={handleFinishAndEvaluate}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    重新生成
+                  </button>
+                  <button
+                    onClick={() => {
+                      setReviewError(null);
+                      setActiveTab("arena");
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold"
+                  >
+                    返回实战
+                  </button>
+                </div>
               </div>
             ) : reviewData?.isEmpty ? (
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-3">
@@ -3830,7 +4846,14 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     </div>
                   </div>
                   <div className="lg:col-span-8 space-y-2">
-                    <div className="text-xs font-bold text-indigo-300">AI 诊断总结：</div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-indigo-300">
+                      <span>AI 诊断总结：</span>
+                      {reviewData.isDemo && (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px] font-semibold">
+                          示例报告（非本轮对话）
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-300 leading-relaxed">
                       {reviewData.proficiencyUpdate.assessmentSummary}
                     </p>
@@ -3840,6 +4863,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 {/* Sentence Upgrades */}
                 <div className="space-y-4">
                   <h3 className="font-bold text-lg text-white">逐句原句升华对比 (Anchor-Based Upgrade)</h3>
+                  {reviewData.sentenceUpgrades.length === 0 && (
+                    <div className="bg-slate-900 border border-dashed border-slate-700 rounded-2xl p-5 text-xs text-slate-400">
+                      本局没有找到适合逐句升华的完整发言，多用完整句子表达后再来复盘试试。
+                    </div>
+                  )}
                   {reviewData.sentenceUpgrades.map((item, index) => (
                     <div
                       key={index}
@@ -3891,6 +4919,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <Flame className="w-5 h-5 text-amber-400" />
                     <h3 className="font-bold text-lg text-white">弱点靶向重练 (Weakness Micro-Drills)</h3>
                   </div>
+                  {reviewData.weaknessDrills.length === 0 && (
+                    <div className="bg-slate-900 border border-dashed border-slate-700 rounded-2xl p-5 text-xs text-slate-400">
+                      本局没有需要专项重练的弱项，继续保持！
+                    </div>
+                  )}
                   {reviewData.weaknessDrills.map((drill) => {
                     const currentMode = drillModeByCard[drill.id] || "rewrite";
                     const fb = drillFeedbacks[drill.id];
@@ -3903,7 +4936,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold">
-                                未踩点弱项
+                                {drill.status || "未踩点弱项"}
                               </span>
                               <h4 className="font-bold text-base text-white">{drill.target}</h4>
                               <span className="text-xs text-slate-400">({drill.meaning})</span>
@@ -3956,22 +4989,31 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                           />
                           <button
                             onClick={() => handleCheckDrill(drill)}
-                            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0"
+                            disabled={fb?.loading}
+                            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-xs shrink-0 flex items-center gap-1.5"
                           >
-                            提交批改
+                            {fb?.loading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                            {fb?.loading ? "批改中..." : "提交批改"}
                           </button>
                         </div>
 
                         {fb && !fb.loading && (
-                          <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-4 space-y-2 text-xs">
-                            <div className="font-bold text-emerald-300">
-                              🎉 批改通过 ({fb.score}分)：{fb.comment}
+                          <div
+                            className={`border rounded-xl p-4 space-y-2 text-xs ${
+                              fb.passed
+                                ? "bg-emerald-950/30 border-emerald-500/40"
+                                : "bg-rose-950/25 border-rose-500/40"
+                            }`}
+                          >
+                            <div className={`font-bold ${fb.passed ? "text-emerald-300" : "text-rose-300"}`}>
+                              {fb.passed ? "🎉 批改通过" : "🔁 还需要再打磨"} ({fb.score}分)：{fb.comment}
                             </div>
-                            <div className="flex items-center justify-between text-slate-300">
+                            {fb.tip && <div className="text-slate-300">💡 {fb.tip}</div>}
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-slate-300">
                               <span>参考地道范例："{fb.anchoredFix}"</span>
                               <button
                                 onClick={() => triggerExtractionForSnippet(fb.anchoredFix, "特训范例拆解")}
-                                className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200"
+                                className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 shrink-0"
                               >
                                 + 拆解收入 Inbox
                               </button>
@@ -4112,6 +5154,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
               {extractionModalData.candidates.map((cand) => {
                 const isChecked = extractionModalData.selectedTempIds.includes(cand.tempId);
+                const existingMatch = inboxItems.find((i) => targetsAreSameEntry(i.target, cand.target));
                 return (
                   <div
                     key={cand.tempId}
@@ -4142,6 +5185,13 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                         <span className="inline-block text-[11px] font-normal px-2 py-0.5 rounded bg-slate-800 text-indigo-300 whitespace-nowrap">
                           {cand.category} · {cand.cefr}
                         </span>
+                        {existingMatch && (
+                          <span className="ml-1.5 inline-block text-[11px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
+                            {meaningsAreClose(existingMatch.meaning, cand.meaning)
+                              ? "已有同款 · 将合并语境"
+                              : "已有同款 · 将新增一条释义"}
+                          </span>
+                        )}
                         <p className="text-xs text-slate-200 font-medium">{cand.meaning}</p>
                         <p className="text-[11px] text-slate-400">💡 {cand.usageNote}</p>
                         <div
@@ -4187,6 +5237,14 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 <span>下次不再弹窗提醒，拆解后默认全部加入 Inbox</span>
               </label>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={handleRetryExtraction}
+                  disabled={isAnalyzingDump}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50 text-xs rounded-xl text-indigo-300 font-semibold flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  重新拆解
+                </button>
                 <button
                   onClick={() => setExtractionModalData(null)}
                   className="px-4 py-2 bg-slate-800 text-xs rounded-xl text-slate-300"
@@ -4475,10 +5533,35 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 <p className="text-[11px] text-slate-500 leading-relaxed">{currentAnalysisMode.desc}</p>
               </div>
 
+              {/* Global extraction focus */}
+              <div className="pt-3 border-t border-slate-800 space-y-2">
+                <span className="text-slate-300 font-semibold block">5. 默认拆解方向（可选，全局生效）：</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={globalExtractionFocus}
+                    onChange={(e) => setGlobalExtractionFocus(e.target.value)}
+                    placeholder="例如：只拆职场会议可复用表达"
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  {globalExtractionFocus && (
+                    <button
+                      onClick={() => setGlobalExtractionFocus("")}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px] text-slate-300"
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  设置后每次拆解都会带上这个方向；在语料库随手记里还可以为单个人工主题单独保存默认方向，主题方向优先于全局。
+                </p>
+              </div>
+
               {/* 4. Data Backup: Export & Import */}
               <div className="pt-3 border-t border-slate-800 space-y-2">
                 <span className="text-slate-300 font-semibold block">
-                  5. 数据导出与导入备份 (JSON Backup & Restore)：
+                  6. 数据导出与导入备份 (JSON Backup & Restore)：
                 </span>
                 <p className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 leading-relaxed">
                   语料、随手记与 API Key 会自动保存在当前浏览器（localStorage）。更换设备、浏览器或清理缓存前，请先导出 JSON 备份；导出的文件不包含 API Key。
