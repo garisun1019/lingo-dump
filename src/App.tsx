@@ -1251,19 +1251,29 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
       };
 
       const targetsDesc = chosenItems.map((i) => `- "${i.target}" (${i.meaning})`).join("\n");
-      const prompt = `Create an engaging role-play scenario for a CEFR ${profile.cefr} learner.
-Target expressions to weave in:
+      const prompt = `Design one role-play scenario for a CEFR ${profile.cefr} English learner.
+
+Target expressions the learner must practise (weave them naturally into the situation):
 ${targetsDesc}
+
 Preferences:
 - ${themeInstruction}
-- AI Persona Style: ${selectedStyleObj.label} (${selectedStyleObj.desc})
-- Turn Length: ${selectedLengthObj.promptHint}
+- AI persona style: ${selectedStyleObj.label} (${selectedStyleObj.desc})
+- AI turn length: ${selectedLengthObj.promptHint}
 
-Provide title (in Chinese & English), aiRole, userRole, difficulty, context (in Chinese explaining the mission), and openingLine (in natural English).`;
+Hard requirements:
+1. aiRole and userRole are two DIFFERENT real human characters. aiRole is the specific person the learner talks to: a name plus job/relationship plus current demand or mood. aiRole must NEVER be an AI, assistant, bot, coach, narrator, system or virtual character, and must never hint at being artificial.
+2. aiRole speaks FIRST. openingLine is spoken by aiRole in the first person, in natural spoken English (max 3 sentences), greeting/addressing userRole directly and ending with a question or hook the learner can answer. It must not mention AI, models, prompts or being an assistant.
+3. userRole is the character the human learner plays, described from the learner's point of view (e.g. "你是……").
+4. context is written in Chinese and addresses the learner as 你 (i.e. userRole): explain the situation, the stakes and what you should achieve in this conversation.
+5. Format aiRole and userRole as "名字（身份 · 当前诉求/情绪）" in Chinese, each 10-30 characters. Use realistic human names.
+6. title is bilingual: Chinese followed by English in parentheses.
+
+Return JSON with title, aiRole, userRole, difficulty, context, openingLine.`;
 
       const res = await callGeminiAPI(
         prompt,
-        "You are a creative Role-play Scenario Director for ESL learners.",
+        "You are a creative role-play scenario director for ESL learners. Every character you write is a realistic human being; you never cast an AI assistant as a character.",
         schema
       );
       setDraftScenario(res);
@@ -1271,14 +1281,14 @@ Provide title (in Chinese & English), aiRole, userRole, difficulty, context (in 
     } catch (err) {
       setDraftScenario({
         title: `${selectedThemeObj.label.replace(/^[^\s]+\s/, "")} · 实战演练`,
-        aiRole: `Jordan（${selectedStyleObj.label}合作伙伴）`,
-        userRole: "项目核心负责人",
+        aiRole: "Jordan（合作方项目负责人 · 急于敲定本季度的交付排期）",
+        userRole: "项目核心负责人（负责技术落地与资源协调）",
         difficulty: `${profile.cefr} 实战模拟`,
         context: `围绕主题「${arenaConfig.customTopic || selectedThemeObj.label}」展开对话，自然融入所选的 ${chosenItems.length} 个目标表达。`,
         openingLine:
           "Hey there! Glad we could catch up. We have a few critical decisions to make today—how do you suggest we kick things off?"
       });
-      triggerToast("⚡ 已根据所选主题更新剧本草稿");
+      triggerToast("⚡ 已根据所选主题更新剧本草稿（未连接模型，使用本地剧本模板）");
     } finally {
       setIsDraftingScript(false);
     }
@@ -1385,25 +1395,27 @@ Provide title (in Chinese & English), aiRole, userRole, difficulty, context (in 
         (i) => !hitTargets[i.id]?.hit && !matchedItems.some((m) => m.id === i.id)
       );
       const historyText = nextMessages
-        .map((m) => `${m.sender === "ai" ? scenario.aiRole : "User"}: ${m.text}`)
+        .filter((m) => !m.isCue)
+        .map((m) => `${m.sender === "ai" ? scenario.aiRole : scenario.userRole}: ${m.text}`)
         .join("\n");
 
-      const prompt = `Scenario: ${scenario.title}
-Your Role: ${scenario.aiRole}
-User Role: ${scenario.userRole}
-AI Style: ${selectedStyleObj.promptHint}
-Length Constraint: ${selectedLengthObj.promptHint}
+      const prompt = `Role-play scenario: ${scenario.title}
+Who you are: ${scenario.aiRole} — a real human being in this scene. You never step out of this identity.
+Who the learner is: ${scenario.userRole}
+Scene context: ${scenario.context}
+Your conversational style: ${selectedStyleObj.promptHint}
+Length constraint: ${selectedLengthObj.promptHint}
 
 Conversation so far:
 ${historyText}
 
-Remaining expressions the user still needs to practice: ${unhitItems.map((u) => `"${u.target}" (${u.meaning})`).join(", ") || "All targets hit! Wrap up naturally."}
+Expressions the learner still needs to practise: ${unhitItems.map((u) => `"${u.target}" (${u.meaning})`).join(", ") || "All targets hit! Wrap up naturally."}
 
-Reply in character in natural English, nudging the user toward using one of the remaining expressions.`;
+Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in character as a real person: never mention AI, models, prompts, coaching or being an assistant, and never narrate from outside the scene. End with something that invites the learner to use one of the remaining expressions.`;
 
       const aiReply = await callGeminiAPI(
         prompt,
-        "You are an engaging role-play partner helping an English learner practice specific expressions in context."
+        "You are role-playing one specific human character in a conversation with an English learner. Stay in character at all times and never reveal or imply that you are an AI, model or assistant."
       );
 
       setMessages((prev) => [
@@ -1441,8 +1453,8 @@ Reply in character in natural English, nudging the user toward using one of the 
         id: `msg-cue-${Date.now()}`,
         sender: "ai",
         isCue: true,
-        text: `💡 **[递话柄提示]** 试试在接下来的回复中用上 **\`${unhit.target}\`**（${unhit.meaning}）！\n\n*"Speaking of which, how do you think we should handle this situation?"*`,
-        timestamp: "AI Coach Cue"
+        text: `💡 **[教练提示]** 这一轮还没用上 **\`${unhit.target}\`**（${unhit.meaning}）。\n\n可以尝试把它接进你的回答，例如："Speaking of which, ..."`,
+        timestamp: "Coach Hint"
       }
     ]);
   };
@@ -2722,7 +2734,11 @@ Reply in character in natural English, nudging the user toward using one of the 
                     >
                       <div className="flex items-center gap-2 mb-1 px-1">
                         <span className="text-[11px] text-slate-400">
-                          {msg.sender === "user" ? "You" : scenario.aiRole}
+                          {msg.sender === "user"
+                            ? "You"
+                            : msg.isCue
+                            ? "🎯 教练提示 (Coach)"
+                            : scenario.aiRole}
                         </span>
                         <button
                           onClick={() => triggerExtractionForSnippet(msg.text, "对话气泡收录")}
