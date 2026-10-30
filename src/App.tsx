@@ -44,6 +44,7 @@ import {
   Home,
   ShieldCheck,
   MousePointerClick,
+  Languages,
   Wand2
 } from "lucide-react";
 
@@ -612,6 +613,15 @@ export default function App() {
   const [hitTargets, setHitTargets] = useState({});
   const [expandedHintId, setExpandedHintId] = useState(null);
   const [lastHitBanner, setLastHitBanner] = useState(null);
+  const [messageTranslations, setMessageTranslations] = useState(
+    SAVED_STATE?.messageTranslations && typeof SAVED_STATE.messageTranslations === "object"
+      ? SAVED_STATE.messageTranslations
+      : {}
+  );
+  const [translatingMessageId, setTranslatingMessageId] = useState(null);
+  const longPressTimerRef = useRef(null);
+  const longPressOriginRef = useRef(null);
+  const lastPointerTypeRef = useRef("mouse");
 
   // Review & Drill State
   const [reviewData, setReviewData] = useState(
@@ -668,7 +678,8 @@ export default function App() {
       messages,
       reviewData,
       arenaConfig,
-      backupHintDismissed
+      backupHintDismissed,
+      messageTranslations
     };
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -691,7 +702,8 @@ export default function App() {
     messages,
     reviewData,
     arenaConfig,
-    backupHintDismissed
+    backupHintDismissed,
+    messageTranslations
   ]);
 
   // Time-based progress feedback while the model is working (real streamed progress is not exposed)
@@ -757,6 +769,8 @@ export default function App() {
     setChatInput("");
     setIsAiTyping(false);
     setSelectionPopup(null);
+    setMessageTranslations({});
+    setTranslatingMessageId(null);
   };
 
   const handleStartWithDemo = () => {
@@ -1764,6 +1778,70 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
     }
   };
 
+  const hideMessageTranslation = (messageId) => {
+    setMessageTranslations((prev) => {
+      const next = { ...prev };
+      delete next[messageId];
+      return next;
+    });
+  };
+
+  const handleTranslateMessage = async (msg) => {
+    if (!msg || !String(msg.text || "").trim()) return;
+    if (messageTranslations[msg.id]) {
+      hideMessageTranslation(msg.id);
+      return;
+    }
+    if (!requireApiKey("翻译对话内容")) return;
+    setTranslatingMessageId(msg.id);
+    try {
+      const translated = await callGeminiAPI(
+        `Translate this role-play line into natural, concise Simplified Chinese. Keep the speaker's tone and register. Output only the translation.\n\n"${msg.text}"`,
+        "You are a bilingual English-Chinese interpreter. Translate faithfully and idiomatically. Output only the Chinese translation without quotes, pinyin, notes or explanations.",
+        null,
+        { maxTokens: 600 }
+      );
+      const cleaned = String(translated || "").trim().replace(/^["'“”]+|["'“”]+$/g, "");
+      if (!cleaned) throw new Error("Empty response");
+      setMessageTranslations((prev) => ({ ...prev, [msg.id]: cleaned }));
+    } catch (err) {
+      const reason = formatAiError(err);
+      triggerToast(`⚠️ 翻译失败：${reason}`);
+      if (/API Key|未配置/i.test(reason)) setShowSettingsModal(true);
+    } finally {
+      setTranslatingMessageId(null);
+    }
+  };
+
+  const cancelBubbleLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressOriginRef.current = null;
+  };
+
+  const startBubbleLongPress = (event, msg) => {
+    lastPointerTypeRef.current = event.pointerType || "mouse";
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    cancelBubbleLongPress();
+    longPressOriginRef.current = { x: event.clientX, y: event.clientY };
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressOriginRef.current = null;
+      window.getSelection?.()?.removeAllRanges?.();
+      handleTranslateMessage(msg);
+    }, 550);
+  };
+
+  const trackBubbleLongPress = (event) => {
+    const origin = longPressOriginRef.current;
+    if (!origin || !longPressTimerRef.current) return;
+    if (Math.abs(event.clientX - origin.x) > 10 || Math.abs(event.clientY - origin.y) > 10) {
+      cancelBubbleLongPress();
+    }
+  };
+
   const handleGiveMeACue = () => {
     const activeTargetItems = inboxItems.filter((i) => scenario.targetIds?.includes(i.id));
     const unhit = activeTargetItems.find((i) => !hitTargets[i.id]?.hit) || activeTargetItems[0];
@@ -1811,6 +1889,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
       }
     ];
     setMessages(demoMsgs);
+    setMessageTranslations({});
     setHitTargets({
       "item-1": { hit: true, sentence: demoMsgs[1].text },
       "item-2": { hit: true, sentence: demoMsgs[3].text }
@@ -3499,7 +3578,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   <span className="w-2.5 h-2.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="font-bold text-sm text-white truncate">{scenario.aiRole}</span>
                   <span className="text-[11px] text-slate-400 hidden sm:inline">
-                    (划选任意文字或点击气泡右上角可将地道表达拆解入库)
+                    (划选或点气泡旁按钮可拆解入库 · 长按气泡看中文译文)
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -3520,6 +3599,10 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <span className="sm:hidden">结束复盘</span>
                   </button>
                 </div>
+              </div>
+
+              <div className="sm:hidden px-3 py-1 text-[10px] text-slate-500 border-b border-slate-800">
+                长按任意气泡可查看中文译文
               </div>
 
               {lastHitBanner && (
@@ -3569,6 +3652,14 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                         </button>
                       </div>
                       <div
+                        onPointerDown={(e) => startBubbleLongPress(e, msg)}
+                        onPointerMove={trackBubbleLongPress}
+                        onPointerUp={cancelBubbleLongPress}
+                        onPointerLeave={cancelBubbleLongPress}
+                        onPointerCancel={cancelBubbleLongPress}
+                        onContextMenu={(e) => {
+                          if (lastPointerTypeRef.current !== "mouse") e.preventDefault();
+                        }}
                         className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                           msg.sender === "user"
                             ? "bg-indigo-600 text-white rounded-br-none shadow"
@@ -3579,6 +3670,35 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                       >
                         {renderFormattedMarkdownText(msg.text)}
                       </div>
+                      {translatingMessageId === msg.id && (
+                        <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
+                          <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                          <span>正在翻译…</span>
+                        </div>
+                      )}
+                      {messageTranslations[msg.id] && (
+                        <div
+                          className={`mt-1.5 max-w-[85%] rounded-xl px-3 py-2 border text-xs leading-relaxed ${
+                            msg.sender === "user"
+                              ? "bg-indigo-950/40 border-indigo-500/30 text-indigo-100"
+                              : "bg-slate-900/80 border-slate-700 text-slate-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3 mb-1">
+                            <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                              <Languages className="w-3 h-3" />
+                              中文译文
+                            </span>
+                            <button
+                              onClick={() => hideMessageTranslation(msg.id)}
+                              className="text-[10px] text-slate-500 hover:text-slate-300"
+                            >
+                              隐藏
+                            </button>
+                          </div>
+                          <p className="whitespace-pre-wrap break-words">{messageTranslations[msg.id]}</p>
+                        </div>
+                      )}
                       {msg.hitTargets && msg.hitTargets.length > 0 && (
                         <div className="mt-1 flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
                           <CheckCircle2 className="w-3.5 h-3.5" />
