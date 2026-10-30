@@ -26,11 +26,12 @@ textarea {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* iOS Safari zooms the page when focusing inputs under 16px */
-@media (max-width: 767px) {
-  input,
-  select,
-  textarea {
+/* iOS Safari zooms the page when focusing form controls under 16px, so bump the
+   size only while focused to keep the resting typography consistent */
+@media (max-width: 767px) and (pointer: coarse) {
+  input:focus,
+  select:focus,
+  textarea:focus {
     font-size: 16px !important;
   }
 }

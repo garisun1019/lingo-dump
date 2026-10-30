@@ -2322,7 +2322,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                       <select
                         value={dumpManualTheme}
                         onChange={(e) => setDumpManualTheme(e.target.value)}
-                        className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                        className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
                       >
                         {customManualThemes.map((t) => (
                           <option key={t} value={t}>
@@ -2476,7 +2476,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <select
                       value={filterAiTheme}
                       onChange={(e) => setFilterAiTheme(e.target.value)}
-                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
                     >
                       <option value="All">🤖 AI智能主题: 全部</option>
                       {uniqueAiThemes
@@ -2491,7 +2491,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <select
                       value={filterManualTheme}
                       onChange={(e) => setFilterManualTheme(e.target.value)}
-                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
                     >
                       <option value="All">🏷️ 人工主题: 全部</option>
                       {uniqueManualThemes
@@ -2506,7 +2506,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <select
                       value={filterCategory}
                       onChange={(e) => setFilterCategory(e.target.value)}
-                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
                     >
                       <option value="All">📚 类别: 全部</option>
                       <option value="Idiom">Idiom (习语)</option>
@@ -2518,7 +2518,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <select
                       value={filterPriority}
                       onChange={(e) => setFilterPriority(e.target.value)}
-                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
                     >
                       <option value="All">🔥 优先级: 全部</option>
                       <option value="High">High (重点提问)</option>
@@ -2529,7 +2529,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <select
                       value={filterMastery}
                       onChange={(e) => setFilterMastery(e.target.value)}
-                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none"
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
                     >
                       <option value="All">📈 掌握度: 全部</option>
                       <option value="0">0 - 新收录</option>
@@ -2990,7 +2990,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 <select
                   value={arenaConfig.styleId}
                   onChange={(e) => setArenaConfig({ ...arenaConfig, styleId: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                 >
                   {AI_STYLES.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -3005,7 +3005,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 <select
                   value={arenaConfig.lengthId}
                   onChange={(e) => setArenaConfig({ ...arenaConfig, lengthId: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                 >
                   {DIALOGUE_LENGTHS.map((l) => (
                     <option key={l.id} value={l.id}>
@@ -3045,7 +3045,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     type="text"
                     value={draftScenario.title}
                     onChange={(e) => setDraftScenario({ ...draftScenario, title: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -3054,7 +3054,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     type="text"
                     value={draftScenario.aiRole}
                     onChange={(e) => setDraftScenario({ ...draftScenario, aiRole: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -3063,7 +3063,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     type="text"
                     value={draftScenario.userRole}
                     onChange={(e) => setDraftScenario({ ...draftScenario, userRole: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -3074,7 +3074,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   rows={2}
                   value={draftScenario.context}
                   onChange={(e) => setDraftScenario({ ...draftScenario, context: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-slate-200 focus:border-indigo-500 focus:outline-none resize-none"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none resize-none"
                 />
               </div>
 
@@ -3084,7 +3084,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   rows={2}
                   value={draftScenario.openingLine}
                   onChange={(e) => setDraftScenario({ ...draftScenario, openingLine: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-emerald-200 focus:border-indigo-500 focus:outline-none resize-none"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-emerald-200 focus:border-indigo-500 focus:outline-none resize-none"
                 />
               </div>
             </div>
@@ -3730,44 +3730,43 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                         : "bg-slate-950 border-slate-800 opacity-60"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5">
-                          {isChecked ? (
-                            <div className="w-5 h-5 rounded bg-indigo-600 flex items-center justify-center text-white">
-                              <Check className="w-3.5 h-3.5" />
-                            </div>
-                          ) : (
-                            <div className="w-5 h-5 rounded border border-slate-600" />
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-white">{cand.target}</span>
-                            <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-indigo-300">
-                              {cand.category} · {cand.cefr}
-                            </span>
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="mt-0.5 shrink-0">
+                        {isChecked ? (
+                          <div className="w-5 h-5 rounded bg-indigo-600 flex items-center justify-center text-white">
+                            <Check className="w-3.5 h-3.5" />
                           </div>
-                          <p className="text-xs text-slate-200 font-medium">{cand.meaning}</p>
-                          <p className="text-[11px] text-slate-400">💡 {cand.usageNote}</p>
-                        </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded border border-slate-600" />
+                        )}
                       </div>
-
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={cand.priority}
-                          onChange={(e) => {
-                            const updated = extractionModalData.candidates.map((c) =>
-                              c.tempId === cand.tempId ? { ...c, priority: e.target.value } : c
-                            );
-                            setExtractionModalData({ ...extractionModalData, candidates: updated });
-                          }}
-                          className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-amber-300"
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <p className="text-sm font-bold text-white leading-snug">{cand.target}</p>
+                        <span className="inline-block text-[11px] font-normal px-2 py-0.5 rounded bg-slate-800 text-indigo-300 whitespace-nowrap">
+                          {cand.category} · {cand.cefr}
+                        </span>
+                        <p className="text-xs text-slate-200 font-medium">{cand.meaning}</p>
+                        <p className="text-[11px] text-slate-400">💡 {cand.usageNote}</p>
+                        <div
+                          className="flex items-center gap-2 pt-1"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <option value="High">High 重点</option>
-                          <option value="Medium">Medium 常规</option>
-                          <option value="Low">Low 低频</option>
-                        </select>
+                          <span className="text-[10px] text-slate-500">入库优先级</span>
+                          <select
+                            value={cand.priority}
+                            onChange={(e) => {
+                              const updated = extractionModalData.candidates.map((c) =>
+                                c.tempId === cand.tempId ? { ...c, priority: e.target.value } : c
+                              );
+                              setExtractionModalData({ ...extractionModalData, candidates: updated });
+                            }}
+                            className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-amber-300"
+                          >
+                            <option value="High">High 重点</option>
+                            <option value="Medium">Medium 常规</option>
+                            <option value="Low">Low 低频</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3938,7 +3937,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     setLlmSettings({ ...llmSettings, provider: e.target.value });
                     setApiTestResult(null);
                   }}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
                 >
                   <option value="openai_compatible">
                     🌐 OpenAI 兼容接口 (硅基流动 / DeepSeek / Kimi / 智谱 / 通义 / OpenAI / OpenRouter)
@@ -3978,14 +3977,14 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                       value={llmSettings.baseUrl}
                       onChange={(e) => setLlmSettings({ ...llmSettings, baseUrl: e.target.value })}
                       placeholder="Base URL (例如 https://api.siliconflow.cn/v1)"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
                     />
                     <input
                       type="text"
                       value={llmSettings.modelName}
                       onChange={(e) => setLlmSettings({ ...llmSettings, modelName: e.target.value })}
                       placeholder="Model Name (例如 deepseek-ai/DeepSeek-V3、deepseek-chat、qwen-plus)"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
                     />
                     <p className="text-[11px] text-slate-500">
                       快捷填入会覆盖 Base URL 与模型名，模型名可按服务商文档自行修改（需支持 JSON 输出）。
@@ -4020,7 +4019,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     onChange={(e) => setLlmSettings({ ...llmSettings, apiKey: e.target.value })}
                     placeholder="输入你的 API Key（仅保存在当前页面内存中）..."
                     autoComplete="off"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
                   />
                   <button
                     onClick={handleTestApiConnection}
