@@ -6,7 +6,7 @@
 ![Version](https://img.shields.io/badge/version-v1.0.0-indigo)
 ![React](https://img.shields.io/badge/React-18+-61DAFB?logo=react&logoColor=black)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-3.0+-38B2AC?logo=tailwind-css&logoColor=white)
-![LLM Ready](https://img.shields.io/badge/LLM-Gemini_%7C_OpenAI_%7C_DeepSeek_%7C_Kimi-emerald)
+![LLM Ready](https://img.shields.io/badge/LLM-Gemini_%7C_SiliconFlow_%7C_OpenAI_%7C_DeepSeek_%7C_Kimi-emerald)
 
 ---
 
@@ -23,7 +23,7 @@
 * **原句锚定升华与靶向重练（Anchor-Based Upgrade & Micro-Drills）**：严格遵循“保留用户原句 90% 骨架”的渐进式润色原则，并提供 **「原句锚定重造」** 与 **「AI 挖坑快问快答」** 两种弱点重练模式。
 
 ### 2. 工程架构与兼容性审计 (`Pass ✅`)
-* **多模型无缝切换（Multi-LLM Provider Architecture）**：内置通用调用层 `callGeminiAPI`，原生支持 Gemini JSON Schema 结构化输出，并兼容 OpenAI / DeepSeek / Kimi / Claude 等接口标准，同时内置启发式兜底算法（Heuristic Fallback），即使在离线或 API 限流状态下也能完整走通所有核心流程。
+* **多模型无缝切换（Multi-LLM Provider Architecture）**：内置通用调用层 `callGeminiAPI`，原生支持 Gemini JSON Schema 结构化输出，并兼容任意 OpenAI 兼容接口；内置启发式兜底算法（Heuristic Fallback），在 API 不可用或限流状态下仍能走通核心拆解流程。
 * **富文本渲染安全性（Safe Markdown Parser）**：自研轻量级块级 + 行内 Markdown 解析器（`renderFormattedMarkdownText`），妥善处理加粗、斜体、行内代码、引用块与列表，无 XSS 注入风险，彻底解决原始符号外露问题。
 * **数据主权与可移植性（JSON Backup & Restore）**：支持一键导出与导入包含用户能力画像、语料库、自定义主题及随手记历史的完整 JSON 备份文件。
 
@@ -66,7 +66,7 @@
 ### 🛠️ 4. 全局效率工具与开放生态 (Utilities & Settings)
 * **全局可最小化随手记 (Floating Quick Notes)**：右下角常驻悬浮球，随时记录灵感并一键交给 AI 拆解入库。
 * **全局鼠标划词收录**：在实战对话或复盘报告中选中任意英文片段，自动浮现 **`+ AI 拆解收入 Inbox`** 与 **`记入 Notes`** 快捷菜单。
-* **多模型 API 兼容与 JSON 备份**：支持内置 Gemini、自定义 Gemini API Key 以及 OpenAI 兼容接口（一键填入 OpenAI / DeepSeek / Kimi 配置），支持 JSON 全量数据导出与导入恢复。
+* **多模型 API 兼容与 JSON 备份**：支持 Google Gemini 原生接口，以及任意 OpenAI 兼容接口（一键填入 硅基流动 / DeepSeek / Kimi / 智谱 GLM / 通义千问 / OpenAI / OpenRouter），也支持 JSON 全量数据导出与导入恢复。
 
 ---
 
@@ -97,9 +97,9 @@ npm run preview
 ### 3. 配置你自己的大模型 API Key
 1. 启动应用后，点击右上角导航栏的 **「⚙️ 设置」** 按钮。
 2. 选择你偏好的模型服务商：
-   * **内置 Gemini 模式**：可通过构建时注入 `VITE_GEMINI_API_KEY` 使用（Key 会打包进前端产物，仅建议个人自用）。
-   * **自定义 Gemini Key**：填入从 Google AI Studio 获取的 API Key（仅保存在当前页面内存中）。
-   * **OpenAI 兼容接口**：点击 `OpenAI`、`DeepSeek` 或 `Kimi` 快捷按钮自动填入 Base URL 与模型名，输入你的 API Key 并点击 **「🔌 测试 API 连通性」**。
+   * **OpenAI 兼容接口**：点击 `硅基流动`、`DeepSeek`、`Kimi`、`智谱 GLM`、`通义千问`、`OpenAI` 或 `OpenRouter` 快捷按钮自动填入 Base URL 与默认模型名（模型名可手动改），输入你的 API Key 后点击 **「🔌 测试 API 连通性」**。
+   * **Google Gemini 原生接口**：填入从 Google AI Studio 获取的 API Key；也可在构建时注入 `VITE_GEMINI_API_KEY`（Key 会打包进前端产物，仅建议个人自用）。
+   * 所有 Key 都只保存在当前页面内存中，刷新即清空；测试结果会直接显示在设置面板内。
 
 > 隐私提示：所有语料与对话均只保存在浏览器内存中（刷新即清空，可用 JSON 导出备份）；AI 请求由浏览器直连你配置的服务商，不经过任何中间服务器。
 

@@ -90,6 +90,19 @@ const DIALOGUE_LENGTHS = [
   { id: "deep", label: "📜 深度长谈 (3~5句/回合)", promptHint: "Provide rich context and nuanced follow-ups in 3-5 sentences (60-90 words)." }
 ];
 
+// OpenAI-compatible providers: selecting one fills in base URL + a default model.
+const LLM_PRESETS = [
+  { id: "siliconflow", label: "硅基流动", baseUrl: "https://api.siliconflow.cn/v1", modelName: "deepseek-ai/DeepSeek-V3", keyUrl: "https://cloud.siliconflow.cn/account/ak" },
+  { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", modelName: "deepseek-chat", keyUrl: "https://platform.deepseek.com/api_keys" },
+  { id: "moonshot", label: "Kimi", baseUrl: "https://api.moonshot.cn/v1", modelName: "moonshot-v1-8k", keyUrl: "https://platform.moonshot.cn/console/api-keys" },
+  { id: "zhipu", label: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", modelName: "glm-4-flash", keyUrl: "https://bigmodel.cn/usercenter/apikeys" },
+  { id: "dashscope", label: "通义千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", modelName: "qwen-plus", keyUrl: "https://bailian.console.aliyun.com/" },
+  { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", modelName: "gpt-4o-mini", keyUrl: "https://platform.openai.com/api-keys" },
+  { id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", modelName: "openai/gpt-4o-mini", keyUrl: "https://openrouter.ai/keys" }
+];
+
+const GEMINI_KEY_URL = "https://aistudio.google.com/apikey";
+
 const INITIAL_INBOX_ITEMS = [
   {
     id: "item-1",
@@ -291,13 +304,14 @@ export default function App() {
   // Global Settings & Multi-LLM Provider Config
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [llmSettings, setLlmSettings] = useState({
-    provider: "builtin_gemini", // "builtin_gemini" | "custom_gemini" | "openai_compatible"
+    provider: "openai_compatible", // "gemini" | "openai_compatible"
     apiKey: "",
-    baseUrl: "https://api.openai.com/v1",
-    modelName: "gpt-4o-mini"
+    baseUrl: "https://api.siliconflow.cn/v1",
+    modelName: "deepseek-ai/DeepSeek-V3"
   });
   const [skipDumpConfirmModal, setSkipDumpConfirmModal] = useState(false);
   const [isTestingApi, setIsTestingApi] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState(null);
 
   // Multi-Item Extraction Confirmation Modal State
   const [extractionModalData, setExtractionModalData] = useState(null);
@@ -391,7 +405,7 @@ export default function App() {
   };
 
   // ==========================================
-  // UNIVERSAL LLM CALLER (Supports Built-in Gemini, Custom Gemini, OpenAI/DeepSeek/Claude)
+  // UNIVERSAL LLM CALLER (Gemini native API + any OpenAI-compatible endpoint)
   // ==========================================
   const callGeminiAPI = async (prompt, systemInstruction, responseSchema = null) => {
     const { provider, apiKey: customKey, baseUrl, modelName } = llmSettings;
@@ -435,13 +449,13 @@ export default function App() {
       return text;
     }
 
-    // 2. Built-in or Custom Gemini Provider
+    // 2. Gemini Native Provider
     const envGeminiKey = (import.meta.env?.VITE_GEMINI_API_KEY || "").trim();
-    const activeGeminiKey = provider === "custom_gemini" && customKey.trim() ? customKey.trim() : envGeminiKey;
+    const activeGeminiKey = customKey.trim() || envGeminiKey;
     if (!activeGeminiKey) {
-      throw new Error("未配置 Gemini API Key：请在「设置」中切换到自定义 Gemini 或 OpenAI 兼容服务商，或构建时注入 VITE_GEMINI_API_KEY");
+      throw new Error("未配置 Gemini API Key：请在「设置」中填写 Google AI Studio 的 Key，或构建时注入 VITE_GEMINI_API_KEY");
     }
-    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -1509,10 +1523,13 @@ Reply in character in natural English, nudging the user toward using one of the 
 
   const handleTestApiConnection = async () => {
     setIsTestingApi(true);
+    setApiTestResult(null);
     try {
       await callGeminiAPI("Reply with OK.", "You are a test assistant.");
+      setApiTestResult({ ok: true, message: "API 连通性测试成功，可以开始使用了。" });
       triggerToast("✅ API 连通性测试成功！");
     } catch (err) {
+      setApiTestResult({ ok: false, message: `连接测试失败：${err.message}` });
       triggerToast(`⚠️ 连接测试失败: ${err.message}`);
     } finally {
       setIsTestingApi(false);
@@ -1597,7 +1614,7 @@ Reply in character in natural English, nudging the user toward using one of the 
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       {/* Toast */}
       {quickSaveToast && (
-        <div className="fixed top-20 right-6 z-50 bg-indigo-600 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-indigo-400/40 flex items-center gap-2 text-xs font-semibold animate-bounce">
+        <div className="fixed top-20 right-6 z-[100] max-w-[calc(100vw-3rem)] bg-indigo-600 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-indigo-400/40 flex items-center gap-2 text-xs font-semibold animate-bounce">
           <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
           <span>{quickSaveToast}</span>
         </div>
@@ -1605,7 +1622,7 @@ Reply in character in natural English, nudging the user toward using one of the 
 
       {/* Global Analyzing Banner */}
       {isAnalyzingDump && analyzingSourceLabel && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 border border-indigo-500 text-indigo-200 px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-bold">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-900/95 border border-indigo-500 text-indigo-200 px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-bold">
           <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
           <span>AI 正在从【{analyzingSourceLabel}】智能拆解可学习的地道表达，请稍候...</span>
         </div>
@@ -3262,90 +3279,113 @@ Reply in character in natural English, nudging the user toward using one of the 
                 <label className="text-slate-300 font-semibold block">2. 选择大语言模型服务商 (LLM API)：</label>
                 <select
                   value={llmSettings.provider}
-                  onChange={(e) => setLlmSettings({ ...llmSettings, provider: e.target.value })}
+                  onChange={(e) => {
+                    setLlmSettings({ ...llmSettings, provider: e.target.value });
+                    setApiTestResult(null);
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
                 >
-                  <option value="builtin_gemini">⚡ 内置免配 Gemini (开箱即用)</option>
-                  <option value="custom_gemini">💎 自定义 Gemini API Key</option>
-                  <option value="openai_compatible">🌐 OpenAI 兼容接口 (DeepSeek / ChatGPT / Kimi / Claude)</option>
+                  <option value="openai_compatible">
+                    🌐 OpenAI 兼容接口 (硅基流动 / DeepSeek / Kimi / 智谱 / 通义 / OpenAI / OpenRouter)
+                  </option>
+                  <option value="gemini">💎 Google Gemini 原生接口</option>
                 </select>
 
                 {llmSettings.provider === "openai_compatible" && (
                   <div className="space-y-2">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-slate-400">快捷填入：</span>
-                      <button
-                        onClick={() =>
-                          setLlmSettings({
-                            ...llmSettings,
-                            baseUrl: "https://api.openai.com/v1",
-                            modelName: "gpt-4o-mini"
-                          })
-                        }
-                        className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300"
-                      >
-                        OpenAI
-                      </button>
-                      <button
-                        onClick={() =>
-                          setLlmSettings({
-                            ...llmSettings,
-                            baseUrl: "https://api.deepseek.com/v1",
-                            modelName: "deepseek-chat"
-                          })
-                        }
-                        className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300"
-                      >
-                        DeepSeek
-                      </button>
-                      <button
-                        onClick={() =>
-                          setLlmSettings({
-                            ...llmSettings,
-                            baseUrl: "https://api.moonshot.cn/v1",
-                            modelName: "moonshot-v1-8k"
-                          })
-                        }
-                        className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300"
-                      >
-                        Kimi
-                      </button>
+                      {LLM_PRESETS.map((preset) => {
+                        const active = llmSettings.baseUrl.replace(/\/+$/, "") === preset.baseUrl;
+                        return (
+                          <button
+                            key={preset.id}
+                            onClick={() =>
+                              setLlmSettings({
+                                ...llmSettings,
+                                baseUrl: preset.baseUrl,
+                                modelName: preset.modelName
+                              })
+                            }
+                            className={`px-2 py-0.5 rounded transition-colors ${
+                              active
+                                ? "bg-indigo-500/30 border border-indigo-500/50 text-indigo-200"
+                                : "bg-slate-800 text-indigo-300 hover:bg-slate-700"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
                     </div>
                     <input
                       type="text"
                       value={llmSettings.baseUrl}
                       onChange={(e) => setLlmSettings({ ...llmSettings, baseUrl: e.target.value })}
-                      placeholder="Base URL (例如 https://api.openai.com/v1)"
+                      placeholder="Base URL (例如 https://api.siliconflow.cn/v1)"
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
                     />
                     <input
                       type="text"
                       value={llmSettings.modelName}
                       onChange={(e) => setLlmSettings({ ...llmSettings, modelName: e.target.value })}
-                      placeholder="Model Name (例如 gpt-4o-mini 或 deepseek-chat)"
+                      placeholder="Model Name (例如 deepseek-ai/DeepSeek-V3、deepseek-chat、qwen-plus)"
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
                     />
+                    <p className="text-[11px] text-slate-500">
+                      快捷填入会覆盖 Base URL 与模型名，模型名可按服务商文档自行修改（需支持 JSON 输出）。
+                    </p>
                   </div>
                 )}
 
-                {llmSettings.provider !== "builtin_gemini" && (
-                  <div className="space-y-2">
-                    <input
-                      type="password"
-                      value={llmSettings.apiKey}
-                      onChange={(e) => setLlmSettings({ ...llmSettings, apiKey: e.target.value })}
-                      placeholder="输入你的 API Key..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
-                    />
-                    <button
-                      onClick={handleTestApiConnection}
-                      disabled={isTestingApi}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-semibold"
-                    >
-                      {isTestingApi ? "正在测试连接..." : "🔌 测试 API 连通性"}
-                    </button>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-400">API Key：</span>
+                    {(() => {
+                      const preset = LLM_PRESETS.find(
+                        (p) => p.baseUrl === llmSettings.baseUrl.replace(/\/+$/, "")
+                      );
+                      const keyUrl =
+                        llmSettings.provider === "gemini" ? GEMINI_KEY_URL : preset?.keyUrl;
+                      return keyUrl ? (
+                        <a
+                          href={keyUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
+                        >
+                          获取 Key ↗
+                        </a>
+                      ) : null;
+                    })()}
                   </div>
-                )}
+                  <input
+                    type="password"
+                    value={llmSettings.apiKey}
+                    onChange={(e) => setLlmSettings({ ...llmSettings, apiKey: e.target.value })}
+                    placeholder="输入你的 API Key（仅保存在当前页面内存中）..."
+                    autoComplete="off"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                  />
+                  <button
+                    onClick={handleTestApiConnection}
+                    disabled={isTestingApi}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-semibold disabled:opacity-60"
+                  >
+                    {isTestingApi ? "正在测试连接..." : "🔌 测试 API 连通性"}
+                  </button>
+                  {apiTestResult && (
+                    <div
+                      className={`text-[11px] leading-relaxed rounded-lg px-2.5 py-2 border break-words ${
+                        apiTestResult.ok
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                          : "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                      }`}
+                    >
+                      {apiTestResult.message}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 3. Dump Confirmation Toggle */}
