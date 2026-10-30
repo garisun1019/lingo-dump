@@ -40,7 +40,11 @@ import {
   ExternalLink,
   Download,
   Upload,
-  Play
+  Play,
+  Home,
+  ShieldCheck,
+  MousePointerClick,
+  Wand2
 } from "lucide-react";
 
 // ==========================================
@@ -288,11 +292,64 @@ const DEMO_REVIEW_DATA = {
   ]
 };
 
+const DEMO_NOTE_CONTENT = "Let's not get bogged down in minor UI details right now.";
+const DEMO_NOTE_HISTORY = [{ id: "n-1", text: "push the envelope (突破极限/挑战常规)", time: "10 mins ago" }];
+
+const DEMO_DRAFT_SCENARIO = {
+  title: DEFAULT_SCENARIO.title,
+  aiRole: DEFAULT_SCENARIO.aiRole,
+  userRole: DEFAULT_SCENARIO.userRole,
+  difficulty: DEFAULT_SCENARIO.difficulty,
+  context: DEFAULT_SCENARIO.context,
+  openingLine: DEFAULT_SCENARIO.openingLine
+};
+
+const EMPTY_SCENARIO = {
+  title: "尚未生成剧本",
+  aiRole: "待生成（在剧本定制里让 AI 编排）",
+  userRole: "待生成",
+  difficulty: "待定",
+  context:
+    "在「剧本定制」中选择对话主题、AI 陪练风格与回复篇幅，勾选至少 1 条语料后即可生成属于你的实战剧本。",
+  targetIds: [],
+  openingLine: ""
+};
+
+const FRESH_PROFICIENCY = {
+  ...INITIAL_PROFICIENCY,
+  dimensions: {
+    lexical: { ...INITIAL_PROFICIENCY.dimensions.lexical, delta: 0 },
+    grammar: { ...INITIAL_PROFICIENCY.dimensions.grammar, delta: 0 },
+    pragmatic: { ...INITIAL_PROFICIENCY.dimensions.pragmatic, delta: 0 },
+    idiomatic: { ...INITIAL_PROFICIENCY.dimensions.idiomatic, delta: 0 }
+  },
+  aiStrategyNote:
+    "这是你的初始能力基线。完成第一次 AI 语料拆解和实战对话后，系统会根据你的真实输出更新各维度分数与提问权重。"
+};
+
+const EMPTY_REVIEW_DATA = {
+  isEmpty: true,
+  overallScore: 0,
+  hitCount: 0,
+  totalTargets: 0,
+  proficiencyUpdate: {
+    oldScore: 0,
+    newScore: 0,
+    cefrProgress: "",
+    dimensionChanges: {},
+    assessmentSummary: ""
+  },
+  sentenceUpgrades: [],
+  weaknessDrills: []
+};
+
 // ==========================================
 // 2. MAIN APPLICATION COMPONENT
 // ==========================================
 export default function App() {
   // Navigation & Subviews
+  const [entryMode, setEntryMode] = useState(null); // null | "demo" | "fresh"
+  const [showLanding, setShowLanding] = useState(true);
   const [activeTab, setActiveTab] = useState("inbox"); // "inbox" | "arena_setup" | "arena" | "review"
   const [inboxSubView, setInboxSubView] = useState("items"); // "items" | "raw_inputs"
   const [focusedItemId, setFocusedItemId] = useState(null);
@@ -346,14 +403,7 @@ export default function App() {
     styleId: "encouraging",
     lengthId: "medium"
   });
-  const [draftScenario, setDraftScenario] = useState({
-    title: DEFAULT_SCENARIO.title,
-    aiRole: DEFAULT_SCENARIO.aiRole,
-    userRole: DEFAULT_SCENARIO.userRole,
-    difficulty: DEFAULT_SCENARIO.difficulty,
-    context: DEFAULT_SCENARIO.context,
-    openingLine: DEFAULT_SCENARIO.openingLine
-  });
+  const [draftScenario, setDraftScenario] = useState(DEMO_DRAFT_SCENARIO);
   const [isDraftingScript, setIsDraftingScript] = useState(false);
 
   // Quick Add Toast & Selection Popover
@@ -362,12 +412,8 @@ export default function App() {
 
   // Floating Notes State
   const [isNotesMinimized, setIsNotesMinimized] = useState(true);
-  const [noteContent, setNoteContent] = useState(
-    "Let's not get bogged down in minor UI details right now."
-  );
-  const [savedNotesHistory, setSavedNotesHistory] = useState([
-    { id: "n-1", text: "push the envelope (突破极限/挑战常规)", time: "10 mins ago" }
-  ]);
+  const [noteContent, setNoteContent] = useState(DEMO_NOTE_CONTENT);
+  const [savedNotesHistory, setSavedNotesHistory] = useState(DEMO_NOTE_HISTORY);
 
   // Arena State
   const [scenario, setScenario] = useState(DEFAULT_SCENARIO);
@@ -402,6 +448,86 @@ export default function App() {
     setTimeout(() => {
       setQuickSaveToast((prev) => (prev === msg ? null : prev));
     }, 3200);
+  };
+
+  // ==========================================
+  // LANDING PAGE: DEMO vs BLANK START
+  // ==========================================
+  const resetSharedPanels = () => {
+    setCustomManualThemes(["高频核心库", "会议话术", "高级句型", "生活口语"]);
+    setFilterCategory("All");
+    setFilterAiTheme("All");
+    setFilterManualTheme("All");
+    setFilterPriority("All");
+    setFilterMastery("All");
+    setDumpManualTheme("高频核心库");
+    setRawInputText("");
+    setIsAddingTheme(false);
+    setNewManualThemeInput("");
+    setArenaConfig({ themeId: "auto", customTopic: "", styleId: "encouraging", lengthId: "medium" });
+    setHitTargets({});
+    setLastHitBanner(null);
+    setExpandedHintId(null);
+    setDrillModeByCard({});
+    setDrillInputs({});
+    setDrillFeedbacks({});
+    setActiveTab("inbox");
+    setInboxSubView("items");
+    setFocusedItemId(null);
+    setIsNotesMinimized(true);
+    setShowProficiencyModal(false);
+    setShowSettingsModal(false);
+    setExtractionModalData(null);
+    setQaModalState(null);
+    setQaInput("");
+    setIsEvaluating(false);
+    setIsAnalyzingDump(false);
+    setAnalyzingSourceLabel(null);
+    setChatInput("");
+    setIsAiTyping(false);
+    setSelectionPopup(null);
+  };
+
+  const handleStartWithDemo = () => {
+    if (entryMode !== null) {
+      const ok = window.confirm("从示例开始会把当前语料、剧本与复盘内容重置为示例数据，确定继续吗？");
+      if (!ok) return;
+    }
+    resetSharedPanels();
+    setInboxItems(INITIAL_INBOX_ITEMS);
+    setSelectedItemIds(["item-1", "item-2", "item-3"]);
+    setProfile(INITIAL_PROFICIENCY);
+    setNoteContent(DEMO_NOTE_CONTENT);
+    setSavedNotesHistory(DEMO_NOTE_HISTORY);
+    setDraftScenario(DEMO_DRAFT_SCENARIO);
+    setScenario(DEFAULT_SCENARIO);
+    setMessages([
+      { id: "msg-0", sender: "ai", text: DEFAULT_SCENARIO.openingLine, timestamp: "Just now" }
+    ]);
+    setReviewData(DEMO_REVIEW_DATA);
+    setEntryMode("demo");
+    setShowLanding(false);
+    triggerToast("✨ 已载入示例语料与剧本，可以直接开始体验");
+  };
+
+  const handleStartFresh = () => {
+    if (entryMode !== null && (inboxItems.length > 0 || savedNotesHistory.length > 0)) {
+      const ok = window.confirm("从头开始会清空当前页面里的语料、剧本与复盘内容（不可恢复），确定继续吗？");
+      if (!ok) return;
+    }
+    resetSharedPanels();
+    setInboxItems([]);
+    setSelectedItemIds([]);
+    setProfile(FRESH_PROFICIENCY);
+    setNoteContent("");
+    setSavedNotesHistory([]);
+    setDraftScenario(EMPTY_SCENARIO);
+    setScenario(EMPTY_SCENARIO);
+    setMessages([]);
+    setReviewData(EMPTY_REVIEW_DATA);
+    setEntryMode("fresh");
+    setShowLanding(false);
+    triggerToast("🌱 已进入空白模式，从你的第一句英文开始积累");
   };
 
   // ==========================================
@@ -1622,6 +1748,347 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
     return "bg-slate-800 text-slate-400 border-slate-700";
   };
 
+  // ==========================================
+  // LANDING / STARTUP PAGE
+  // ==========================================
+  if (showLanding) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+        {/* soft background glows */}
+        <div className="pointer-events-none fixed inset-0 overflow-hidden">
+          <div className="absolute -top-40 -left-32 w-[480px] h-[480px] rounded-full bg-indigo-600/20 blur-[120px]" />
+          <div className="absolute top-1/3 -right-40 w-[520px] h-[520px] rounded-full bg-emerald-500/10 blur-[140px]" />
+        </div>
+
+        <div className="relative max-w-6xl mx-auto px-5 lg:px-8 py-7 space-y-14">
+          {/* Top bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h1 className="font-bold text-lg tracking-tight text-white">English Dump & Role-play</h1>
+                <p className="text-[11px] text-slate-400">把「收藏的英语」练成「说得出的话」</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                无账号 · 无埋点 · 数据只留在当前页面
+              </span>
+              {entryMode !== null && (
+                <button
+                  onClick={() => setShowLanding(false)}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200"
+                >
+                  <span>继续当前学习</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Hero */}
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+            <div className="space-y-5">
+              <span className="inline-flex items-center gap-2 text-[11px] font-semibold px-3 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">
+                V1.0 · 动态 CEFR 能力评估 · 原句锚定升华
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight text-white">
+                打破「收藏即学会」的魔咒
+              </h2>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                收藏夹里攒了几千条地道表达，开口时却还是 <span className="text-slate-400 line-through">have to</span>、
+                <span className="text-slate-400 line-through">talk about it later</span>？
+                这里把任何英文句子拆成可练的语料，再编排进剧本实战，最后基于<strong className="text-white">你自己的原句</strong>做地道升华。
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <button
+                  onClick={handleStartWithDemo}
+                  className="group flex-1 text-left px-5 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-xl shadow-indigo-600/25 transition-all"
+                >
+                  <span className="flex items-center gap-2 text-sm font-bold text-white">
+                    <Play className="w-4 h-4 fill-white" />
+                    从示例开始
+                    <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/20">推荐</span>
+                  </span>
+                  <span className="block text-[11px] text-indigo-100/90 mt-1">
+                    预置 5 条语料 + 一套完整剧本，先体验闭环
+                  </span>
+                </button>
+                <button
+                  onClick={handleStartFresh}
+                  className="group flex-1 text-left px-5 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/50 transition-all"
+                >
+                  <span className="flex items-center gap-2 text-sm font-bold text-white">
+                    <Wand2 className="w-4 h-4 text-emerald-400" />
+                    从头开始
+                  </span>
+                  <span className="block text-[11px] text-slate-400 mt-1">
+                    空白语料库与剧本，从你的第一句英文开始
+                  </span>
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                两种模式都可以随时点左上角房子图标回到这里；会话数据仅保存在当前页面内存，刷新即清空。
+              </p>
+            </div>
+
+            {/* Visual mock: arena chat + anchor review */}
+            <div className="relative">
+              <div className="absolute -inset-8 bg-gradient-to-tr from-indigo-600/25 via-purple-500/10 to-emerald-500/10 blur-3xl rounded-full" />
+              <div className="relative space-y-3">
+                <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 shadow-2xl">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-bold text-slate-400">
+                      🎭 Q4 产品危机排期会议
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold">
+                      实时踩点
+                    </span>
+                  </div>
+                  <div className="space-y-2.5">
+                    <div className="w-[88%] rounded-xl rounded-bl-none bg-slate-800 border border-slate-700 px-3 py-2 text-[11px] text-slate-200 leading-relaxed">
+                      Alex：Can we really afford to touch the old auth code right now?
+                    </div>
+                    <div className="w-[86%] ml-auto rounded-xl rounded-br-none bg-indigo-600 px-3 py-2 text-[11px] text-white leading-relaxed">
+                      I think we have to{" "}
+                      <span className="font-bold underline decoration-amber-300 decoration-2">bite the bullet</span> and
+                      refactor it before launch.
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-300">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      踩点成功：bite the bullet · 熟练度 +1
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-3 mt-3 border-t border-slate-800">
+                    {["bite the bullet", "circle back to", "devil's advocate"].map((t, i) => (
+                      <span
+                        key={t}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                          i === 0
+                            ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                            : "bg-slate-800 border-slate-700 text-slate-400"
+                        }`}
+                      >
+                        {i === 0 ? "✓ " : "○ "}
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/95 border border-indigo-500/30 rounded-2xl p-4 shadow-xl">
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-300 mb-2">
+                    <Award className="w-3.5 h-3.5" />
+                    原句锚定升华预览
+                  </div>
+                  <div className="space-y-1.5 text-[11px] leading-relaxed">
+                    <p className="text-slate-400 line-through decoration-slate-600">
+                      …we have to bite the bullet and fix the core code…
+                    </p>
+                    <p className="text-white">
+                      …we have to bite the bullet and{" "}
+                      <span className="text-indigo-300 font-semibold">refactor</span> the core code…
+                      <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                        90% 保留原词
+                      </span>
+                    </p>
+                    <p className="text-emerald-300">
+                      …we really have{" "}
+                      <span className="font-semibold">no choice but to bite the bullet</span> and refactor the core
+                      architecture…
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Learning loop */}
+          <section className="space-y-5">
+            <div className="text-center space-y-1.5">
+              <h3 className="text-xl font-bold text-white">一次完整的学习闭环</h3>
+              <p className="text-xs text-slate-400">被动输入 → 主动输出 → 针对性复盘，三步走完</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[
+                {
+                  icon: <Inbox className="w-5 h-5 text-indigo-300" />,
+                  step: "01 · Dump",
+                  title: "随手记，AI 拆解",
+                  desc: "粘贴美剧台词、外刊好句或会议原话，AI 按你当前的 CEFR 等级拆出习语、短语动词与句型，勾选即入库。"
+                },
+                {
+                  icon: <MessageSquare className="w-5 h-5 text-emerald-300" />,
+                  step: "02 · Setup & Arena",
+                  title: "定制剧本，实战踩点",
+                  desc: "选主题、AI 陪练性格与回复篇幅，AI 把目标语料编进有冲突的对话；用上目标表达即刻点亮看板，卡壳还能让 AI 递话柄。"
+                },
+                {
+                  icon: <Award className="w-5 h-5 text-amber-300" />,
+                  step: "03 · Anchor Review",
+                  title: "原句升华，弱点重练",
+                  desc: "保留你原句 90% 骨架做微调润色，再给出融入目标词的地道版，并针对漏掉的表达做靶向微特训。"
+                }
+              ].map((s) => (
+                <div key={s.step} className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center">
+                      {s.icon}
+                    </div>
+                    <span className="text-[10px] font-bold tracking-wider text-slate-500">{s.step}</span>
+                  </div>
+                  <h4 className="font-bold text-sm text-white">{s.title}</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">{s.desc}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Features */}
+          <section className="space-y-5">
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-white">核心功能一览</h3>
+                <p className="text-xs text-slate-400 mt-1">所有 AI 环节都围绕你的真实输出运转，而不是通用题库</p>
+              </div>
+              <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-slate-500">
+                <MousePointerClick className="w-3.5 h-3.5" />
+                支持全局划词收录
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[
+                {
+                  icon: <BookOpen className="w-5 h-5 text-indigo-300" />,
+                  title: "智能语料库 & 原始输入流",
+                  desc: "语料卡片与原文双向内联高亮：原句里已收录的片段直接高亮，点击即可跳转卡片。支持 AI 主题、人工主题、类别、优先级、掌握度交叉筛选。",
+                  chips: ["双向高亮", "多维筛选", "批量整理"]
+                },
+                {
+                  icon: <Lightbulb className="w-5 h-5 text-amber-300" />,
+                  title: "随身 AI 语料助教",
+                  desc: "每条语料和每条原始记录旁都有小灯泡：追问近义词辨析、中式英语误区或长难句语法，AI 解答里的好句还能再次拆解入库。",
+                  chips: ["近义词辨析", "Chinglish 纠正", "二次拆解"]
+                },
+                {
+                  icon: <StickyNote className="w-5 h-5 text-emerald-300" />,
+                  title: "全局效率工具",
+                  desc: "右下角常驻可最小化随手记，通勤灵感随时丢进去；在对话或复盘报告中划选任意英文，即可一键拆解入库或记入 Notes。",
+                  chips: ["悬浮随手记", "划词收录", "气泡收录"]
+                },
+                {
+                  icon: <Cpu className="w-5 h-5 text-purple-300" />,
+                  title: "多模型接入 & 数据自主",
+                  desc: "支持硅基流动、DeepSeek、Kimi、智谱 GLM、通义千问、OpenAI、OpenRouter 与 Gemini。Key 只存在内存，并可导出/导入完整 JSON 备份。",
+                  chips: ["7+ 服务商", "Key 仅存内存", "JSON 备份"]
+                }
+              ].map((f) => (
+                <div key={f.title} className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center">
+                      {f.icon}
+                    </div>
+                    <h4 className="font-bold text-sm text-white">{f.title}</h4>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">{f.desc}</p>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {f.chips.map((c) => (
+                      <span key={c} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-950 border border-slate-800 text-slate-400">
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Mode chooser */}
+          <section id="start-choice" className="space-y-4">
+            <div className="text-center space-y-1.5">
+              <h3 className="text-xl font-bold text-white">选择你的起点</h3>
+              <p className="text-xs text-slate-400">示例模式用来快速感受完整闭环，空白模式用来建立真正属于你的语料库</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="relative bg-gradient-to-b from-indigo-950/60 to-slate-900 border border-indigo-500/40 rounded-2xl p-6 space-y-3 shadow-xl">
+                <span className="absolute top-4 right-4 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/25 text-indigo-200 border border-indigo-400/40">
+                  推荐首次体验
+                </span>
+                <div className="flex items-center gap-2">
+                  <Play className="w-4 h-4 text-indigo-300" />
+                  <h4 className="font-bold text-base text-white">从示例开始</h4>
+                </div>
+                <ul className="text-xs text-slate-300 space-y-1.5 leading-relaxed">
+                  <li>· 5 条预置语料（bite the bullet / circle back to / play devil's advocate …）</li>
+                  <li>· 一套「Q4 产品危机排期会议」剧本与角色设定</li>
+                  <li>· 可一键载入演示对话，直接查看升华复盘与弱点特训</li>
+                </ul>
+                <button
+                  onClick={handleStartWithDemo}
+                  className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/25"
+                >
+                  <span>载入示例并进入</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3 shadow-xl">
+                <div className="flex items-center gap-2">
+                  <Wand2 className="w-4 h-4 text-emerald-300" />
+                  <h4 className="font-bold text-base text-white">从头开始</h4>
+                </div>
+                <ul className="text-xs text-slate-300 space-y-1.5 leading-relaxed">
+                  <li>· 清空全部示例语料、原始记录、随手记与复盘报告</li>
+                  <li>· 保留初始 B2 能力基线，等待你的真实表现来更新</li>
+                  <li>· 从第一条收藏的英文句子开始，建立自己的语料库</li>
+                </ul>
+                <button
+                  onClick={handleStartFresh}
+                  className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-emerald-500/40 text-emerald-300 text-sm font-bold flex items-center justify-center gap-1.5"
+                >
+                  <span>空白模式进入</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] text-slate-400">
+              <div className="flex items-start gap-2">
+                <Key className="w-3.5 h-3.5 text-indigo-400 mt-0.5 shrink-0" />
+                <span>进入后请在右上角「设置」里填入你自己的模型 API Key（如硅基流动的免费额度）。</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" />
+                <span>API Key 与学习数据只保存在当前页面内存，不上传第三方、不写 localStorage。</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <Download className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                <span>语料、能力画像与随手记可随时在设置中导出为 JSON 备份。</span>
+              </div>
+            </div>
+          </section>
+
+          <footer className="pt-2 pb-6 border-t border-slate-900 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+            <span>English Dump & Role-play · V1.0 · MIT License</span>
+            <a
+              href="https://github.com/garisun1019/lingo-dump"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 hover:text-slate-300"
+            >
+              <ExternalLink className="w-3 h-3" />
+              github.com/garisun1019/lingo-dump
+            </a>
+          </footer>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       {/* Toast */}
@@ -1762,6 +2229,14 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             </nav>
 
             <button
+              onClick={() => setShowLanding(true)}
+              title="返回启动页（可切换示例 / 空白模式）"
+              className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-all"
+            >
+              <Home className="w-4 h-4 text-emerald-400" />
+            </button>
+
+            <button
               onClick={() => setShowSettingsModal(true)}
               className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition-all"
             >
@@ -1825,6 +2300,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
 
                 <form onSubmit={handleAddDump} className="space-y-3">
                   <textarea
+                    id="quick-dump-input"
                     value={rawInputText}
                     onChange={(e) => setRawInputText(e.target.value)}
                     placeholder="粘贴任何你遇到的英文句子、美剧台词、外刊段落... AI 会自动从中拆解出多个地道词组、句型并供你勾选入库"
@@ -2140,6 +2616,15 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                       下方展示你录入的所有原始英文段落。**原文中已入选语料库的部分已直接内联高亮标出**，单击原文中的高亮词块即可跳转到对应的具体语料卡片！
                     </span>
                   </div>
+                  {groupedRawInputs.length === 0 && (
+                    <div className="bg-slate-900 border border-dashed border-slate-700 rounded-2xl p-10 text-center space-y-2">
+                      <FileText className="w-8 h-8 text-slate-600 mx-auto" />
+                      <h3 className="font-bold text-sm text-white">还没有原始输入记录</h3>
+                      <p className="text-xs text-slate-400">
+                        在左侧「随手记」里粘贴第一段英文，AI 拆解出的语料会带着原句一起出现在这里。
+                      </p>
+                    </div>
+                  )}
                   {groupedRawInputs.map((group, idx) => (
                     <div
                       key={idx}
@@ -2189,6 +2674,41 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               ) : (
                 /* SUBVIEW B: DETAILED CORPUS CARDS */
                 <div className="space-y-3">
+                  {filteredInbox.length === 0 && (
+                    <div className="bg-slate-900 border border-dashed border-slate-700 rounded-2xl p-10 text-center space-y-3">
+                      <BookOpen className="w-8 h-8 text-slate-600 mx-auto" />
+                      <h3 className="font-bold text-sm text-white">
+                        {inboxItems.length === 0 ? "语料库还是空的" : "当前筛选条件下没有语料"}
+                      </h3>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        {inboxItems.length === 0
+                          ? "把你在美剧、播客、会议里遇到的英文句子粘贴到左侧，AI 会拆出值得练的习语、短语动词和句型。"
+                          : "试试把筛选条件切回「全部」，或重新勾选 AI 智能主题分类。"}
+                      </p>
+                      {inboxItems.length === 0 ? (
+                        <button
+                          onClick={() => document.getElementById("quick-dump-input")?.focus()}
+                          className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          去写下第一句
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setFilterCategory("All");
+                            setFilterAiTheme("All");
+                            setFilterManualTheme("All");
+                            setFilterPriority("All");
+                            setFilterMastery("All");
+                          }}
+                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold"
+                        >
+                          重置全部筛选
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {filteredInbox.map((item) => {
                     const isSelected = selectedItemIds.includes(item.id);
                     const isFocused = focusedItemId === item.id;
@@ -2410,6 +2930,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
+                {selectedItemIds.length === 0 && (
+                  <p className="text-xs text-slate-400">
+                    还没有勾选目标语料。先回语料库点击卡片勾选，或点击右上角「去增删目标语料」。
+                  </p>
+                )}
                 {inboxItems
                   .filter((i) => selectedItemIds.includes(i.id))
                   .map((it) => (
@@ -2557,13 +3082,17 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
             </div>
 
             <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
-              <button
-                onClick={handleLoadDemoDialogueAndReview}
-                className="px-4 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5"
-              >
-                <Eye className="w-4 h-4" />
-                <span>一键载入演示对话并直接查看【原句升华复盘】</span>
-              </button>
+              {entryMode !== "fresh" ? (
+                <button
+                  onClick={handleLoadDemoDialogueAndReview}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5"
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>一键载入演示对话并直接查看【原句升华复盘】</span>
+                </button>
+              ) : (
+                <span className="text-[11px] text-slate-500">空白模式下不会载入示例对话，用自己的语料开练即可。</span>
+              )}
 
               <div className="flex items-center gap-3">
                 <button
@@ -2627,6 +3156,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 </div>
 
                 <div className="space-y-2.5">
+                  {activeTargetItems.length === 0 && (
+                    <p className="text-xs text-slate-400">
+                      本局还没有目标语料。去「剧本定制」勾选至少 1 条表达后再开练。
+                    </p>
+                  )}
                   {activeTargetItems.map((item) => {
                     const isHit = Boolean(hitTargets[item.id]?.hit);
                     const isHintExpanded = expandedHintId === item.id;
@@ -2676,13 +3210,15 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                   })}
                 </div>
 
-                <button
-                  onClick={handleLoadDemoDialogueAndReview}
-                  className="mt-4 w-full py-2.5 px-3 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center justify-center gap-1.5"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>一键载入演示对话并体验复盘</span>
-                </button>
+                {entryMode !== "fresh" && (
+                  <button
+                    onClick={handleLoadDemoDialogueAndReview}
+                    className="mt-4 w-full py-2.5 px-3 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center justify-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>一键载入演示对话并体验复盘</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2727,7 +3263,17 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     <p className="text-sm">AI 导演正在根据所选语料与风格偏好生成剧本...</p>
                   </div>
                 ) : (
-                  messages.map((msg) => (
+                  <>
+                    {messages.length === 0 && (
+                      <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-slate-400">
+                        <MessageSquare className="w-7 h-7 text-slate-600" />
+                        <p className="text-sm font-semibold text-slate-300">剧本还没有开场白</p>
+                        <p className="text-xs max-w-sm leading-relaxed">
+                          回到「剧本定制」，勾选目标语料并让 AI 生成剧本，或手动填写开场白台词后再开始对话。
+                        </p>
+                      </div>
+                    )}
+                    {messages.map((msg) => (
                     <div
                       key={msg.id}
                       className={`flex flex-col ${msg.sender === "user" ? "items-end" : "items-start"}`}
@@ -2767,7 +3313,8 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                         </div>
                       )}
                     </div>
-                  ))
+                  ))}
+                  </>
                 )}
                 {isAiTyping && (
                   <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -2809,6 +3356,30 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
                 <RefreshCw className="w-8 h-8 animate-spin text-indigo-400 mx-auto" />
                 <h3 className="text-lg font-bold text-white">AI 正在生成基于你原词原句的升华对比报告...</h3>
+              </div>
+            ) : reviewData?.isEmpty ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                <Award className="w-9 h-9 text-slate-600 mx-auto" />
+                <h3 className="text-lg font-bold text-white">还没有可复盘的对话</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  先勾选几条目标语料进入剧本实战，结束对话后这里会生成逐句原句升华对比与弱点靶向特训。
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+                  <button
+                    onClick={() => setActiveTab("inbox")}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Inbox className="w-3.5 h-3.5" />
+                    去语料库挑选
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("arena_setup")}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    去剧本定制
+                  </button>
+                </div>
               </div>
             ) : (
               <>
