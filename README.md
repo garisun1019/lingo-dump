@@ -23,9 +23,9 @@
 * **原句锚定升华与靶向重练（Anchor-Based Upgrade & Micro-Drills）**：严格遵循“保留用户原句 90% 骨架”的渐进式润色原则，并提供 **「原句锚定重造」** 与 **「AI 挖坑快问快答」** 两种弱点重练模式。
 
 ### 2. 工程架构与兼容性审计 (`Pass ✅`)
-* **多模型无缝切换（Multi-LLM Provider Architecture）**：内置通用调用层 `callGeminiAPI`，原生支持 Gemini JSON Schema 结构化输出，并兼容任意 OpenAI 兼容接口；内置启发式兜底算法（Heuristic Fallback），在 API 不可用或限流状态下仍能走通核心拆解流程。
+* **多模型无缝切换（Multi-LLM Provider Architecture）**：内置通用调用层 `callGeminiAPI`，原生支持 Gemini JSON Schema 结构化输出，并兼容任意 OpenAI 兼容接口；未配置 Key 时会在发起 AI 分析前明确提示并跳转设置，不再静默降级或伪造结果。
 * **富文本渲染安全性（Safe Markdown Parser）**：自研轻量级块级 + 行内 Markdown 解析器（`renderFormattedMarkdownText`），妥善处理加粗、斜体、行内代码、引用块与列表，无 XSS 注入风险，彻底解决原始符号外露问题。
-* **数据主权与可移植性（JSON Backup & Restore）**：支持一键导出与导入包含用户能力画像、语料库、自定义主题及随手记历史的完整 JSON 备份文件。
+* **数据主权与可移植性（Local Cache & JSON Backup）**：学习数据与模型配置自动缓存在浏览器 localStorage，支持一键导出与导入包含用户能力画像、语料库、自定义主题及随手记历史的完整 JSON 备份（不含 API Key）。
 
 ---
 
@@ -99,11 +99,31 @@ npm run preview
 2. 选择你偏好的模型服务商：
    * **OpenAI 兼容接口**：点击 `硅基流动`、`DeepSeek`、`Kimi`、`智谱 GLM`、`通义千问`、`OpenAI` 或 `OpenRouter` 快捷按钮自动填入 Base URL 与默认模型名（模型名可手动改），输入你的 API Key 后点击 **「🔌 测试 API 连通性」**。
    * **Google Gemini 原生接口**：填入从 Google AI Studio 获取的 API Key；也可在构建时注入 `VITE_GEMINI_API_KEY`（Key 会打包进前端产物，仅建议个人自用）。
-   * 所有 Key 都只保存在当前页面内存中，刷新即清空；测试结果会直接显示在设置面板内。
+   * 未配置 Key 时，点击任何 AI 功能都会先弹窗提醒并打开设置，不会再静默跳过 AI 直接入库。
+   * 测试结果会直接显示在设置面板内。
 
-> 隐私提示：所有语料与对话均只保存在浏览器内存中（刷新即清空，可用 JSON 导出备份）；AI 请求由浏览器直连你配置的服务商，不经过任何中间服务器。
+### 4. AI 拆解模式（节省 Token）
 
-### 4. 部署到 GitHub Pages
+拆解前可选择三种模式，控制抽取条数与输出长度：
+
+| 模式 | 抽取数量 | 特点 |
+| --- | --- | --- |
+| 节省 | 1–2 条 | 提示词与输出最短，`max_tokens` 最低，速度最快 |
+| 平衡（默认） | 2–3 条 | 释义、用法与踩点匹配都完整 |
+| 详尽 | 3–5 条 | 附优先级理由、主题分类与更多用法细节 |
+
+拆解结果按「词典化」规则归一：动词还原为原形、去掉时态/复数/冠词/代词/助动词，只保留可以直接复用的固定搭配或句型（例如 `was given a heads-up` → `give a heads-up`）。
+
+### 5. 数据持久化与备份
+
+- API Key、语料、筛选状态、演练配置、对话与复习数据会自动缓存在**当前浏览器的 localStorage**（键名 `lingo-dump:v1`），再次打开同一浏览器仍能看到。
+- **切换设备或浏览器（含无痕模式）后本地数据不会跟随**，请先在设置面板「数据导出与导入备份」中导出 JSON 存档，再到新环境导入。
+- 导出的 JSON **不包含 API Key**，换环境后需要重新填写 Key。
+- 清理浏览器站点数据会一并清除本地缓存。
+
+> 隐私提示：所有语料、对话与 API Key 都只保存在你自己的浏览器 localStorage 中，不会上传到任何中间服务器；AI 请求由浏览器直连你配置的服务商。API Key 也不会写入导出的 JSON 存档。
+
+### 6. 部署到 GitHub Pages
 
 仓库已内置 `.github/workflows/deploy.yml`，推送到 `main` 后自动构建并发布。首次使用需在仓库 **Settings → Pages → Build and deployment** 中将 Source 设为 **GitHub Actions**。
 
@@ -111,7 +131,8 @@ npm run preview
 
 ## 🗺️ 五、 后续迭代路线图 (Roadmap for V1.1+)
 
-- [ ] **LocalStorage 自动持久化**：在现有 JSON 导入/导出的基础上，加入浏览器本地自动缓存与 IndexedDB 支持。
+- [x] **LocalStorage 自动持久化**：API Key、语料、演练与复习数据自动缓存，配合 JSON 导入/导出跨设备迁移。
+- [ ] **IndexedDB 大容量存储**：语料规模变大后把长文本与历史对话迁移到 IndexedDB。
 - [ ] **Web Speech API 语音实战模式**：支持语音输入（STT）与 AI 角色语音朗读（TTS），打造沉浸式听说训练。
 - [ ] **基于艾宾浩斯遗忘曲线的今日待练推送**：根据 `lastReviewedAt` 与 `mastery` 自动计算每日到期需复习的语料卡片。
 - [ ] **浏览器划词插件 (Chrome Extension)**：在浏览外刊或 YouTube 字幕时一键 Dump 到本地语料库。

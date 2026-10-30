@@ -344,29 +344,167 @@ const EMPTY_REVIEW_DATA = {
 };
 
 // ==========================================
+// AI EXTRACTION MODES, LEMMA RULES & LOCAL CACHE
+// ==========================================
+const ANALYSIS_MODES = [
+  {
+    id: "economy",
+    label: "节省",
+    summary: "1-2 条 · 最快最省",
+    desc: "只抽 1-2 条最值得学的表达，释义与用法各一句，提示词和输出都最短。"
+  },
+  {
+    id: "balanced",
+    label: "平衡",
+    summary: "2-3 条 · 默认",
+    desc: "抽 2-3 条核心表达，释义、用法和踩点匹配都完整。"
+  },
+  {
+    id: "detailed",
+    label: "详尽",
+    summary: "3-5 条 · 含推荐理由",
+    desc: "最多 5 条，附优先级理由、主题分类和更多用法细节，token 消耗最高。"
+  }
+];
+const ANALYSIS_MODE_LIMITS = {
+  economy: { maxItems: 2, maxTokens: 800 },
+  balanced: { maxItems: 3, maxTokens: 1200 },
+  detailed: { maxItems: 5, maxTokens: 1800 }
+};
+
+const EXTRACTION_CATEGORIES = ["Idiom", "Phrasal Verb", "Sentence Pattern", "Vocabulary"];
+const STOPWORD_TARGETS = new Set([
+  "a", "an", "the", "is", "am", "are", "was", "were", "be", "been", "being",
+  "do", "does", "did", "has", "have", "had", "will", "would", "shall", "should",
+  "can", "could", "may", "might", "must", "i", "you", "he", "she", "it", "we",
+  "they", "me", "him", "her", "us", "them", "my", "your", "his", "our", "their",
+  "this", "that", "these", "those", "there", "here", "and", "or", "but", "so",
+  "of", "in", "on", "at", "to", "for", "with", "by", "from", "as", "if", "than"
+]);
+
+const STORAGE_KEY = "lingo-dump:v1";
+const DEFAULT_LLM_SETTINGS = {
+  provider: "openai_compatible",
+  apiKey: "",
+  baseUrl: "https://api.siliconflow.cn/v1",
+  modelName: "deepseek-ai/DeepSeek-V3"
+};
+
+const loadPersistedState = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "null");
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (err) {
+    return null;
+  }
+};
+const SAVED_STATE = loadPersistedState();
+const SAVED_ENTRY_MODE = SAVED_STATE?.entryMode === "demo" || SAVED_STATE?.entryMode === "fresh"
+  ? SAVED_STATE.entryMode
+  : null;
+
+const guessAiTheme = (text) => {
+  const lower = String(text || "").toLowerCase();
+  if (/advocate|argue|debat|opposite|opinion|disagree/.test(lower)) return "观点思辨 (Debate)";
+  if (/coffee|dinner|lunch|weekend|friend|party|casual/.test(lower)) return "日常社交 (Casual)";
+  if (/budget|executive|vendor|contract|board|stakeholder|negotiat/.test(lower)) return "高管谈判 (Executive)";
+  return "职场沟通 (Workplace)";
+};
+
+const sanitizeExtractionTarget = (raw) =>
+  String(raw || "")
+    .trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+    .replace(/[.,!?;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isUsefulExtractionTarget = (target) => {
+  if (!target) return false;
+  const lower = target.toLowerCase();
+  if (STOPWORD_TARGETS.has(lower)) return false;
+  if (!/[a-z]/i.test(lower)) return false;
+  if (lower.split(" ").length === 1 && lower.length <= 2) return false;
+  return true;
+};
+
+const buildExtractionSchema = (mode) => {
+  const properties = {
+    target: { type: "STRING" },
+    category: { type: "STRING" },
+    cefr: { type: "STRING" },
+    meaning: { type: "STRING" },
+    usageNote: { type: "STRING" }
+  };
+  const required = ["target", "category", "cefr", "meaning", "usageNote"];
+
+  if (mode !== "economy") {
+    properties.priority = { type: "STRING" };
+    properties.patterns = { type: "ARRAY", items: { type: "STRING" } };
+    required.push("priority", "patterns");
+  }
+  if (mode === "detailed") {
+    properties.priorityReason = { type: "STRING" };
+    properties.aiTheme = { type: "STRING" };
+    properties.tags = { type: "ARRAY", items: { type: "STRING" } };
+    required.push("priorityReason", "aiTheme", "tags");
+  }
+
+  return {
+    type: "OBJECT",
+    properties: {
+      extractedItems: {
+        type: "ARRAY",
+        items: { type: "OBJECT", properties, required }
+      }
+    },
+    required: ["extractedItems"]
+  };
+};
+
+const formatAiError = (err) => {
+  const message = String(err?.message || err || "");
+  if (/401|403|unauthorized|invalid.*key/i.test(message)) return "API Key 无效或无权限，请到设置检查";
+  if (/429|quota|rate.?limit/i.test(message)) return "请求过于频繁或额度不足，请稍后重试";
+  if (/failed to fetch|networkerror|network|load failed/i.test(message)) return "网络连接失败，请检查网络或服务商地址";
+  if (/unexpected end|unexpected token|json/i.test(message)) return "模型返回内容不完整，请重试或改用「节省/平衡」模式";
+  if (/empty.*response/i.test(message)) return "模型没有返回内容，请稍后重试";
+  return message || "未知错误";
+};
+
+// ==========================================
 // 2. MAIN APPLICATION COMPONENT
 // ==========================================
 export default function App() {
   // Navigation & Subviews
-  const [entryMode, setEntryMode] = useState(null); // null | "demo" | "fresh"
-  const [showLanding, setShowLanding] = useState(true);
+  const [entryMode, setEntryMode] = useState(SAVED_ENTRY_MODE); // null | "demo" | "fresh"
+  const [showLanding, setShowLanding] = useState(!SAVED_ENTRY_MODE);
   const [activeTab, setActiveTab] = useState("inbox"); // "inbox" | "arena_setup" | "arena" | "review"
   const [inboxSubView, setInboxSubView] = useState("items"); // "items" | "raw_inputs"
   const [focusedItemId, setFocusedItemId] = useState(null);
 
   // User Dynamic Proficiency State
-  const [profile, setProfile] = useState(INITIAL_PROFICIENCY);
+  const [profile, setProfile] = useState(
+    SAVED_STATE?.profile || (SAVED_ENTRY_MODE === "fresh" ? FRESH_PROFICIENCY : INITIAL_PROFICIENCY)
+  );
   const [showProficiencyModal, setShowProficiencyModal] = useState(false);
 
   // Global Settings & Multi-LLM Provider Config
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [llmSettings, setLlmSettings] = useState({
-    provider: "openai_compatible", // "gemini" | "openai_compatible"
-    apiKey: "",
-    baseUrl: "https://api.siliconflow.cn/v1",
-    modelName: "deepseek-ai/DeepSeek-V3"
+    ...DEFAULT_LLM_SETTINGS,
+    ...(SAVED_STATE?.llmSettings || {})
   });
-  const [skipDumpConfirmModal, setSkipDumpConfirmModal] = useState(false);
+  const [skipDumpConfirmModal, setSkipDumpConfirmModal] = useState(
+    Boolean(SAVED_STATE?.skipDumpConfirmModal)
+  );
+  const [analysisMode, setAnalysisMode] = useState(
+    ANALYSIS_MODES.some((m) => m.id === SAVED_STATE?.analysisMode) ? SAVED_STATE.analysisMode : "balanced"
+  );
+  const [backupHintDismissed, setBackupHintDismissed] = useState(
+    Boolean(SAVED_STATE?.backupHintDismissed)
+  );
   const [isTestingApi, setIsTestingApi] = useState(false);
   const [apiTestResult, setApiTestResult] = useState(null);
 
@@ -378,32 +516,55 @@ export default function App() {
   const [qaInput, setQaInput] = useState("");
 
   // Inbox State
-  const [inboxItems, setInboxItems] = useState(INITIAL_INBOX_ITEMS);
+  const [inboxItems, setInboxItems] = useState(
+    Array.isArray(SAVED_STATE?.inboxItems)
+      ? SAVED_STATE.inboxItems
+      : SAVED_ENTRY_MODE === "fresh"
+      ? []
+      : INITIAL_INBOX_ITEMS
+  );
   const [rawInputText, setRawInputText] = useState("");
   const [dumpManualTheme, setDumpManualTheme] = useState("高频核心库");
   const [isAnalyzingDump, setIsAnalyzingDump] = useState(false);
   const [analyzingSourceLabel, setAnalyzingSourceLabel] = useState(null);
+  const [analyzeProgress, setAnalyzeProgress] = useState(0);
+  const [analyzeElapsed, setAnalyzeElapsed] = useState(0);
 
   // Filter & Batch States
-  const [selectedItemIds, setSelectedItemIds] = useState(["item-1", "item-2", "item-3"]);
+  const [selectedItemIds, setSelectedItemIds] = useState(
+    Array.isArray(SAVED_STATE?.selectedItemIds)
+      ? SAVED_STATE.selectedItemIds
+      : SAVED_ENTRY_MODE === "fresh"
+      ? []
+      : ["item-1", "item-2", "item-3"]
+  );
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterAiTheme, setFilterAiTheme] = useState("All");
   const [filterManualTheme, setFilterManualTheme] = useState("All");
   const [filterPriority, setFilterPriority] = useState("All");
   const [filterMastery, setFilterMastery] = useState("All");
-  const [customManualThemes, setCustomManualThemes] = useState(["高频核心库", "会议话术", "高级句型", "生活口语"]);
+  const [customManualThemes, setCustomManualThemes] = useState(
+    Array.isArray(SAVED_STATE?.customManualThemes)
+      ? SAVED_STATE.customManualThemes
+      : ["高频核心库", "会议话术", "高级句型", "生活口语"]
+  );
   const [newManualThemeInput, setNewManualThemeInput] = useState("");
   const [isAddingTheme, setIsAddingTheme] = useState(false);
   const [isSmartClustering, setIsSmartClustering] = useState(false);
 
   // Arena Setup & Script Editor Config
-  const [arenaConfig, setArenaConfig] = useState({
-    themeId: "auto",
-    customTopic: "",
-    styleId: "encouraging",
-    lengthId: "medium"
-  });
-  const [draftScenario, setDraftScenario] = useState(DEMO_DRAFT_SCENARIO);
+  const [arenaConfig, setArenaConfig] = useState(
+    SAVED_STATE?.arenaConfig || {
+      themeId: "auto",
+      customTopic: "",
+      styleId: "encouraging",
+      lengthId: "medium"
+    }
+  );
+  const [draftScenario, setDraftScenario] = useState(
+    SAVED_STATE?.draftScenario ||
+      (SAVED_ENTRY_MODE === "fresh" ? EMPTY_SCENARIO : DEMO_DRAFT_SCENARIO)
+  );
   const [isDraftingScript, setIsDraftingScript] = useState(false);
 
   // Quick Add Toast & Selection Popover
@@ -412,20 +573,40 @@ export default function App() {
 
   // Floating Notes State
   const [isNotesMinimized, setIsNotesMinimized] = useState(true);
-  const [noteContent, setNoteContent] = useState(DEMO_NOTE_CONTENT);
-  const [savedNotesHistory, setSavedNotesHistory] = useState(DEMO_NOTE_HISTORY);
+  const [noteContent, setNoteContent] = useState(
+    typeof SAVED_STATE?.noteContent === "string"
+      ? SAVED_STATE.noteContent
+      : SAVED_ENTRY_MODE === "fresh"
+      ? ""
+      : DEMO_NOTE_CONTENT
+  );
+  const [savedNotesHistory, setSavedNotesHistory] = useState(
+    Array.isArray(SAVED_STATE?.savedNotesHistory)
+      ? SAVED_STATE.savedNotesHistory
+      : SAVED_ENTRY_MODE === "fresh"
+      ? []
+      : DEMO_NOTE_HISTORY
+  );
 
   // Arena State
-  const [scenario, setScenario] = useState(DEFAULT_SCENARIO);
+  const [scenario, setScenario] = useState(
+    SAVED_STATE?.scenario || (SAVED_ENTRY_MODE === "fresh" ? EMPTY_SCENARIO : DEFAULT_SCENARIO)
+  );
   const [isGeneratingScenario, setIsGeneratingScenario] = useState(false);
-  const [messages, setMessages] = useState([
-    {
-      id: "msg-0",
-      sender: "ai",
-      text: DEFAULT_SCENARIO.openingLine,
-      timestamp: "Just now"
-    }
-  ]);
+  const [messages, setMessages] = useState(
+    Array.isArray(SAVED_STATE?.messages)
+      ? SAVED_STATE.messages
+      : SAVED_ENTRY_MODE === "fresh"
+      ? []
+      : [
+          {
+            id: "msg-0",
+            sender: "ai",
+            text: DEFAULT_SCENARIO.openingLine,
+            timestamp: "Just now"
+          }
+        ]
+  );
   const [chatInput, setChatInput] = useState("");
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [hitTargets, setHitTargets] = useState({});
@@ -433,7 +614,9 @@ export default function App() {
   const [lastHitBanner, setLastHitBanner] = useState(null);
 
   // Review & Drill State
-  const [reviewData, setReviewData] = useState(DEMO_REVIEW_DATA);
+  const [reviewData, setReviewData] = useState(
+    SAVED_STATE?.reviewData || (SAVED_ENTRY_MODE === "fresh" ? EMPTY_REVIEW_DATA : DEMO_REVIEW_DATA)
+  );
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [drillModeByCard, setDrillModeByCard] = useState({});
   const [drillInputs, setDrillInputs] = useState({});
@@ -449,6 +632,94 @@ export default function App() {
       setQuickSaveToast((prev) => (prev === msg ? null : prev));
     }, 3200);
   };
+
+  const hasApiKey =
+    llmSettings.provider === "gemini"
+      ? Boolean(llmSettings.apiKey.trim() || (import.meta.env?.VITE_GEMINI_API_KEY || "").trim())
+      : Boolean(llmSettings.apiKey.trim());
+  const currentAnalysisMode =
+    ANALYSIS_MODES.find((m) => m.id === analysisMode) || ANALYSIS_MODES[1];
+
+  const requireApiKey = (actionLabel) => {
+    if (hasApiKey) return true;
+    setShowSettingsModal(true);
+    triggerToast(`⚠️ 还没有配置 API Key，请先在设置里填写后再${actionLabel}`);
+    return false;
+  };
+
+  // Keep the whole learning state in this browser so returning users see their corpus
+  useEffect(() => {
+    if (!entryMode) return;
+    const payload = {
+      v: 1,
+      savedAt: new Date().toISOString(),
+      entryMode,
+      profile,
+      llmSettings,
+      skipDumpConfirmModal,
+      analysisMode,
+      inboxItems,
+      selectedItemIds,
+      customManualThemes,
+      savedNotesHistory,
+      noteContent,
+      scenario,
+      draftScenario,
+      messages,
+      reviewData,
+      arenaConfig,
+      backupHintDismissed
+    };
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (err) {
+      // Quota or private-mode failures should never break the session
+    }
+  }, [
+    entryMode,
+    profile,
+    llmSettings,
+    skipDumpConfirmModal,
+    analysisMode,
+    inboxItems,
+    selectedItemIds,
+    customManualThemes,
+    savedNotesHistory,
+    noteContent,
+    scenario,
+    draftScenario,
+    messages,
+    reviewData,
+    arenaConfig,
+    backupHintDismissed
+  ]);
+
+  // Time-based progress feedback while the model is working (real streamed progress is not exposed)
+  useEffect(() => {
+    if (!isAnalyzingDump) {
+      setAnalyzeProgress(0);
+      setAnalyzeElapsed(0);
+      return;
+    }
+    setAnalyzeProgress(8);
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setAnalyzeElapsed(Math.floor((Date.now() - startedAt) / 1000));
+      setAnalyzeProgress((prev) =>
+        prev >= 92 ? 92 : prev + (prev < 45 ? 3 : prev < 75 ? 1.5 : 0.6)
+      );
+    }, 400);
+    return () => clearInterval(timer);
+  }, [isAnalyzingDump]);
+
+  const analyzeStageText =
+    analyzeProgress < 20
+      ? "读取并整理原句…"
+      : analyzeProgress < 55
+      ? "请求模型拆解中…"
+      : analyzeProgress < 85
+      ? "等待模型返回结果…"
+      : "解析并校验候选表达…";
 
   // ==========================================
   // LANDING PAGE: DEMO vs BLANK START
@@ -533,7 +804,7 @@ export default function App() {
   // ==========================================
   // UNIVERSAL LLM CALLER (Gemini native API + any OpenAI-compatible endpoint)
   // ==========================================
-  const callGeminiAPI = async (prompt, systemInstruction, responseSchema = null) => {
+  const callGeminiAPI = async (prompt, systemInstruction, responseSchema = null, options = {}) => {
     const { provider, apiKey: customKey, baseUrl, modelName } = llmSettings;
 
     // 1. OpenAI-Compatible Provider
@@ -560,6 +831,7 @@ export default function App() {
             { role: "user", content: prompt }
           ],
           temperature: 0.7,
+          ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
           ...(responseSchema ? { response_format: { type: "json_object" } } : {})
         })
       });
@@ -591,8 +863,12 @@ export default function App() {
     if (responseSchema) {
       payload.generationConfig = {
         responseMimeType: "application/json",
-        responseSchema
+        responseSchema,
+        ...(options.maxTokens ? { maxOutputTokens: options.maxTokens } : {}),
+        ...(options.disableThinking ? { thinkingConfig: { thinkingBudget: 0 } } : {})
       };
+    } else if (options.maxTokens) {
+      payload.generationConfig = { maxOutputTokens: options.maxTokens };
     }
 
     const delays = [1000, 2000];
@@ -621,90 +897,6 @@ export default function App() {
   // ==========================================
   // UNIFIED AI EXTRACTION FLOW FOR ANY SNIPPET
   // ==========================================
-  const buildHeuristicExtractions = (cleanText, sourceLabel) => {
-    const knownChunks = [
-      {
-        match: /get(?:ting)? bogged down in/i,
-        target: "get bogged down in",
-        category: "Phrasal Verb",
-        cefr: "B2",
-        meaning: "陷入……泥潭而无法推进；纠缠于琐碎细节",
-        usageNote: "后接名词或动名词 (get bogged down in details)，表示被琐事拖慢节奏。",
-        patterns: ["bogged down in", "get bogged down", "getting bogged down in"]
-      },
-      {
-        match: /jump(?:ing)? on this call/i,
-        target: "jump on a call",
-        category: "Idiom",
-        cefr: "B1",
-        meaning: "快速接入电话/线上会议",
-        usageNote: "北美职场高频口语，比 join a meeting 更地道亲切。",
-        patterns: ["jump on a call", "jumping on this call", "jump on this call"]
-      },
-      {
-        match: /what's your take on/i,
-        target: "What's your take on [sth]?",
-        category: "Sentence Pattern",
-        cefr: "B2",
-        meaning: "你对……怎么看？你的观点是什么？",
-        usageNote: "take 在此作名词表示“看法/切入点”，完美替代 What do you think about...?",
-        patterns: ["what's your take on", "your take on"]
-      },
-      {
-        match: /share your concern/i,
-        target: "share [sb's] concern about",
-        category: "Phrasal Verb",
-        cefr: "B2",
-        meaning: "与某人有同样的顾虑/感同身受某人的担忧",
-        usageNote: "商务谈判安抚对方情绪的黄金开场白。",
-        patterns: ["share your concern", "share his concern"]
-      },
-      {
-        match: /refactor the (?:core|legacy) (?:code|architecture)/i,
-        target: "refactor the legacy architecture",
-        category: "Vocabulary",
-        cefr: "B2",
-        meaning: "重构遗留底层架构/代码",
-        usageNote: "技术与产品团队沟通高频搭配，替代 fix the old code。",
-        patterns: ["refactor the core", "refactor the legacy"]
-      }
-    ];
-
-    const matched = knownChunks
-      .filter((k) => k.match.test(cleanText))
-      .map((k) => ({
-        target: k.target,
-        category: k.category,
-        cefr: k.cefr,
-        meaning: k.meaning,
-        usageNote: k.usageNote,
-        priority: "High",
-        priorityReason: `从【${sourceLabel}】中精准识别出的高频地道表达`,
-        aiTheme: "职场沟通 (Workplace)",
-        tags: [sourceLabel, "Authentic"],
-        patterns: k.patterns
-      }));
-
-    if (matched.length > 0) return matched;
-
-    const words = cleanText.replace(/[.?!]+$/, "").split(/\s+/);
-    const chunkText = words.length > 6 ? words.slice(0, 5).join(" ") : cleanText;
-    return [
-      {
-        target: chunkText,
-        category: words.length > 5 ? "Sentence Pattern" : "Idiom",
-        cefr: profile.cefr,
-        meaning: `从【${sourceLabel}】提炼的核心表达结构`,
-        usageNote: "建议结合原句语境进行造句替换练习。",
-        priority: "High",
-        priorityReason: `匹配当前 ${profile.cefr} 实战进阶需求`,
-        aiTheme: "职场沟通 (Workplace)",
-        tags: [sourceLabel],
-        patterns: [chunkText.toLowerCase()]
-      }
-    ];
-  };
-
   const commitCandidatesToInbox = (candidatesToCommit) => {
     if (!candidatesToCommit || candidatesToCommit.length === 0) return;
     const today = getTodayDateStr();
@@ -734,91 +926,95 @@ export default function App() {
 
   const triggerExtractionForSnippet = async (rawSnippet, sourceLabel = "快捷收录") => {
     const cleanText = (rawSnippet || "").trim();
-    if (!cleanText) return;
+    if (!cleanText) return false;
+    if (!requireApiKey("开始 AI 拆解")) return false;
+
+    const mode = ANALYSIS_MODES.find((m) => m.id === analysisMode) || ANALYSIS_MODES[1];
+    const limits = ANALYSIS_MODE_LIMITS[mode.id] || ANALYSIS_MODE_LIMITS.balanced;
     setIsAnalyzingDump(true);
     setAnalyzingSourceLabel(sourceLabel);
+    setAnalyzeProgress(8);
 
     try {
-      const schema = {
-        type: "OBJECT",
-        properties: {
-          extractedItems: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: {
-                target: { type: "STRING" },
-                category: { type: "STRING" },
-                cefr: { type: "STRING" },
-                meaning: { type: "STRING" },
-                usageNote: { type: "STRING" },
-                priority: { type: "STRING" },
-                priorityReason: { type: "STRING" },
-                aiTheme: { type: "STRING" },
-                tags: { type: "ARRAY", items: { type: "STRING" } },
-                patterns: { type: "ARRAY", items: { type: "STRING" } }
-              },
-              required: [
-                "target",
-                "category",
-                "cefr",
-                "meaning",
-                "usageNote",
-                "priority",
-                "priorityReason",
-                "aiTheme",
-                "tags",
-                "patterns"
-              ]
-            }
-          }
-        },
-        required: ["extractedItems"]
-      };
+      const schema = buildExtractionSchema(mode.id);
+      const modeInstruction = {
+        economy: "Mode: 节省 (economy). Extract AT MOST 2 items, only the most reusable ones. meaning <= 22 Chinese characters, usageNote <= 30 Chinese characters. Do not restate the sentence.",
+        balanced: "Mode: 平衡 (balanced). Extract 2-3 items. meaning <= 40 Chinese characters, usageNote <= 60 Chinese characters with one collocation hint.",
+        detailed: "Mode: 详尽 (detailed). Extract 3-5 items, richest coverage. usageNote may include collocations, register and one short example."
+      }[mode.id];
 
-      const prompt = `User wants to extract valuable English expressions from this text (Source: ${sourceLabel}):
+      const fieldInstruction = {
+        economy: "Return only these fields per item: target, category, cefr, meaning, usageNote.",
+        balanced: "Return per item: target, category, cefr, meaning, usageNote, priority (\"High\"|\"Medium\"|\"Low\"), patterns (1-3 lowercase inflected forms needed to match the learner's own writing).",
+        detailed: "Return per item: target, category, cefr, meaning, usageNote, priority, priorityReason, aiTheme, tags, patterns (1-3 lowercase inflected forms)."
+      }[mode.id];
+
+      const prompt = `Extract dictionary-style English learning entries from this text (Source: ${sourceLabel}):
 "${cleanText}"
 
-The user's current English proficiency is CEFR ${profile.cefr} (${profile.cefrTitle}).
-Deconstruct this sentence/paragraph and extract ALL valuable, authentic English learning chunks (idioms, phrasal verbs, collocations, high-value vocabulary, or sentence patterns—usually 1 to 4 distinct items).
-CRITICAL: Do NOT just return the entire long sentence as the target. Extract the specific reusable phrase/idiom/pattern found inside the sentence!
-For each extracted item:
-- target: The specific reusable English phrase, idiom, or sentence pattern.
-- category: MUST be one of "Idiom", "Phrasal Verb", "Sentence Pattern", "Vocabulary".
-- cefr: MUST be one of "A1", "A2", "B1", "B2", "C1", "C2".
-- meaning: Clear, concise Chinese definition.
-- usageNote: Practical Chinese explanation of how to use it, collocations, or grammar nuance.
-- priority: "High", "Medium", or "Low".
-- priorityReason: Why this fits the user's CEFR ${profile.cefr} growth.
-- aiTheme: One of "职场沟通 (Workplace)", "观点思辨 (Debate)", "日常社交 (Casual)", "高管谈判 (Executive)".
-- patterns: 2-4 lowercase string substrings/inflections to match in raw text.`;
+Learner CEFR: ${profile.cefr} (${profile.cefrTitle}).
+${modeInstruction}
+
+DICTIONARY NORMALIZATION RULES (highest priority):
+1. Every target must be in lemma/dictionary form: base verb with no -ed/-ing/-s, singular noun unless the expression is fixed plural, and no tense, aspect or voice marker.
+2. Strip grammatical decoration that only belongs to this sentence: articles (a/an/the), subject pronouns, auxiliaries, possessives and prepositions — unless they are a fixed part of the idiom (e.g. "the elephant in the room").
+3. Never extract grammar itself (tense, plural, articles, word class) or a one-off subject+verb clause. If the original is inflected, restore the canonical entry (e.g. "was given a heads-up" -> "give a heads-up"; "got bogged down in" -> "get bogged down in").
+4. Do NOT output the whole sentence. Each target is a reusable chunk (phrasal verb, collocation, idiom, or sentence pattern with [sb]/[sth] placeholders), max 6 words.
+5. Skip proper nouns, numbers, filler words and single low-value words.
+6. Deduplicate: if two items differ only by inflection, keep one canonical entry.
+
+For each item:
+- target: the normalized reusable entry.
+- category: one of "Idiom", "Phrasal Verb", "Sentence Pattern", "Vocabulary".
+- cefr: one of "A1", "A2", "B1", "B2", "C1", "C2".
+- meaning: concise Chinese definition.
+- usageNote: concise Chinese usage note (collocation / register / pitfall).
+${fieldInstruction}`;
 
       const result = await callGeminiAPI(
         prompt,
-        "You are an expert ESL linguist who deconstructs authentic English text into specific, reusable vocabulary/idiom/pattern cards.",
-        schema
+        "You are an ESL lexicographer building dictionary headwords, not a sentence paraphraser. You always normalize inflected text into base-form, reusable entries and never keep grammatical decoration in the headword.",
+        schema,
+        { maxTokens: limits.maxTokens, disableThinking: true }
       );
 
-      const rawList =
-        result?.extractedItems?.length > 0
-          ? result.extractedItems
-          : buildHeuristicExtractions(cleanText, sourceLabel);
+      const seen = new Set();
+      const rawList = Array.isArray(result?.extractedItems) ? result.extractedItems : [];
+      const normalized = rawList
+        .map((item) => ({ ...item, target: sanitizeExtractionTarget(item.target) }))
+        .filter((item) => item.target && isUsefulExtractionTarget(item.target))
+        .filter((item) => {
+          const key = item.target.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, limits.maxItems);
 
-      const candidates = rawList.map((item, idx) => ({
+      if (normalized.length === 0) {
+        throw new Error("AI 没有返回可用的地道表达，请换一句再试");
+      }
+
+      const candidates = normalized.map((item, idx) => ({
         tempId: `cand-${Date.now()}-${idx}`,
-        target: item.target || cleanText,
+        target: item.target,
         rawInput: cleanText,
-        category: item.category || "Idiom",
-        cefr: item.cefr || profile.cefr,
+        category: EXTRACTION_CATEGORIES.includes(item.category) ? item.category : "Idiom",
+        cefr: /^(A1|A2|B1|B2|C1|C2)$/.test(item.cefr || "") ? item.cefr : profile.cefr,
         meaning: item.meaning || "地道核心表达",
-        usageNote: item.usageNote || "可在对应语境中自然替换大白话使用。",
-        priority: item.priority || "High",
-        priorityReason: item.priorityReason || `从【${sourceLabel}】中拆解提炼的高价值表达`,
+        usageNote: item.usageNote || "可在相近语境中直接替换使用。",
+        priority: ["High", "Medium", "Low"].includes(item.priority) ? item.priority : "High",
+        priorityReason: item.priorityReason || `按当前 ${profile.cefr} 水平优先积累`,
         tags: item.tags?.length ? item.tags : [sourceLabel],
-        aiTheme: item.aiTheme || "职场沟通 (Workplace)",
+        aiTheme: item.aiTheme || guessAiTheme(`${item.target} ${cleanText}`),
         manualTheme: dumpManualTheme || "高频核心库",
-        patterns: item.patterns?.length ? item.patterns : [(item.target || cleanText).toLowerCase()]
+        patterns: item.patterns?.length
+          ? item.patterns.map((p) => String(p).toLowerCase())
+          : [item.target.toLowerCase()]
       }));
+
+      setAnalyzeProgress(100);
+      await new Promise((r) => setTimeout(r, 250));
 
       if (skipDumpConfirmModal) {
         commitCandidatesToInbox(candidates);
@@ -831,25 +1027,12 @@ For each extracted item:
           dontAskAgainChecked: false
         });
       }
+      return true;
     } catch (err) {
-      const fallbackCandidates = buildHeuristicExtractions(cleanText, sourceLabel).map((item, idx) => ({
-        tempId: `cand-${Date.now()}-${idx}`,
-        ...item,
-        rawInput: cleanText,
-        manualTheme: dumpManualTheme || "高频核心库"
-      }));
-
-      if (skipDumpConfirmModal) {
-        commitCandidatesToInbox(fallbackCandidates);
-      } else {
-        setExtractionModalData({
-          sourceLabel,
-          rawText: cleanText,
-          candidates: fallbackCandidates,
-          selectedTempIds: fallbackCandidates.map((c) => c.tempId),
-          dontAskAgainChecked: false
-        });
-      }
+      const reason = formatAiError(err);
+      triggerToast(`⚠️ AI 拆解失败：${reason}`);
+      if (/API Key|未配置/i.test(reason)) setShowSettingsModal(true);
+      return false;
     } finally {
       setIsAnalyzingDump(false);
       setAnalyzingSourceLabel(null);
@@ -941,6 +1124,7 @@ For each extracted item:
     if (!qaModalState) return;
     const questionText = (presetQuestion || qaInput).trim();
     if (!questionText) return;
+    if (!requireApiKey("向 AI 语料助教提问")) return;
 
     const updatedMsgs = [...qaModalState.messages, { role: "user", text: questionText }];
     setQaModalState((prev) => ({ ...prev, messages: updatedMsgs, loading: true }));
@@ -970,12 +1154,15 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
           : null
       );
     } catch (err) {
-      const fallbackAnswer = `针对 **「${qaModalState.title}」** 的解析：\n\n1. **核心语感**：该表达在地道母语者交流中非常高频，能有效替代平铺直叙的大白话。\n2. **搭配注意**：使用时注意前后的介词搭配与主谓时态呼应。\n3. **实战造句**：*"We decided to ${qaModalState.title} and move the project forward."*`;
+      triggerToast(`⚠️ 提问失败：${formatAiError(err)}`);
       setQaModalState((prev) =>
         prev
           ? {
               ...prev,
-              messages: [...updatedMsgs, { role: "ai", text: fallbackAnswer }],
+              messages: [
+                ...updatedMsgs,
+                { role: "ai", text: `⚠️ 这次请求没有成功：${formatAiError(err)}。请检查设置后重新提问。` }
+              ],
               loading: false
             }
           : null
@@ -1253,8 +1440,8 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
     if (e) e.preventDefault();
     if (!rawInputText.trim()) return;
     const textToAnalyze = rawInputText.trim();
-    setRawInputText("");
-    await triggerExtractionForSnippet(textToAnalyze, "Inbox 随手记");
+    const ok = await triggerExtractionForSnippet(textToAnalyze, "Inbox 随手记");
+    if (ok) setRawInputText("");
   };
 
   const handleDeleteSingleItem = (id, e) => {
@@ -1359,6 +1546,7 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
       triggerToast("⚠️ 请先至少勾选 1 个目标表达");
       return;
     }
+    if (!requireApiKey("让 AI 生成剧本")) return;
     setIsDraftingScript(true);
     const selectedThemeObj = ARENA_THEMES.find((t) => t.id === arenaConfig.themeId) || ARENA_THEMES[0];
     const selectedStyleObj = AI_STYLES.find((s) => s.id === arenaConfig.styleId) || AI_STYLES[0];
@@ -1419,7 +1607,7 @@ Return JSON with title, aiRole, userRole, difficulty, context, openingLine.`;
         openingLine:
           "Hey there! Glad we could catch up. We have a few critical decisions to make today—how do you suggest we kick things off?"
       });
-      triggerToast("⚡ 已根据所选主题更新剧本草稿（未连接模型，使用本地剧本模板）");
+      triggerToast(`⚡ AI 生成失败（${formatAiError(err)}），已载入本地剧本模板，可在设置中检查 API 配置`);
     } finally {
       setIsDraftingScript(false);
     }
@@ -1480,6 +1668,7 @@ Return JSON with title, aiRole, userRole, difficulty, context, openingLine.`;
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() || isAiTyping) return;
+    if (!requireApiKey("开始 AI 实战对话")) return;
     const userText = chatInput.trim();
     setChatInput("");
 
@@ -1559,13 +1748,15 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
         }
       ]);
     } catch (err) {
+      triggerToast(`⚠️ 对话请求失败：${formatAiError(err)}`);
       setMessages((prev) => [
         ...prev,
         {
           id: `msg-${Date.now() + 1}`,
           sender: "ai",
-          text: "That makes sense! Still, what if someone on the board disagrees with our approach? How would you counter their point, and when should we revisit the remaining budget?",
-          timestamp: "Just now"
+          isCue: true,
+          text: `⚠️ **本轮回复没有生成**：${formatAiError(err)}。请到设置检查 API Key 后继续对话。`,
+          timestamp: "System"
         }
       ]);
     } finally {
@@ -1695,9 +1886,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
   const handleSubmitNoteToInbox = async () => {
     const clean = noteContent.trim();
     if (!clean) return;
-    setSavedNotesHistory((prev) => [{ id: `n-${Date.now()}`, text: clean, time: "Just now" }, ...prev]);
-    setNoteContent("");
-    await triggerExtractionForSnippet(clean, "随手记 Notes");
+    const ok = await triggerExtractionForSnippet(clean, "随手记 Notes");
+    if (ok) {
+      setSavedNotesHistory((prev) => [{ id: `n-${Date.now()}`, text: clean, time: "Just now" }, ...prev]);
+      setNoteContent("");
+    }
   };
 
   // Computed lists
@@ -1837,7 +2030,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 </button>
               </div>
               <p className="text-[11px] text-slate-500">
-                两种模式都可以随时点左上角房子图标回到这里；会话数据仅保存在当前页面内存，刷新即清空。
+                两种模式都可以随时点左上角房子图标回到这里；语料与设置会自动保存在当前浏览器，换设备或浏览器前请先在设置里导出 JSON 备份。
               </p>
             </div>
 
@@ -1988,8 +2181,8 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 {
                   icon: <Cpu className="w-5 h-5 text-purple-300" />,
                   title: "多模型接入 & 数据自主",
-                  desc: "支持硅基流动、DeepSeek、Kimi、智谱 GLM、通义千问、OpenAI、OpenRouter 与 Gemini。Key 只存在内存，并可导出/导入完整 JSON 备份。",
-                  chips: ["7+ 服务商", "Key 仅存内存", "JSON 备份"]
+                  desc: "支持硅基流动、DeepSeek、Kimi、智谱 GLM、通义千问、OpenAI、OpenRouter 与 Gemini。Key 存在本浏览器，学习数据自动缓存并可导出/导入 JSON 备份。",
+                  chips: ["7+ 服务商", "本地自动缓存", "JSON 备份"]
                 }
               ].map((f) => (
                 <div key={f.title} className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-2">
@@ -2068,11 +2261,11 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
               </div>
               <div className="flex items-start gap-2">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" />
-                <span>API Key 与学习数据只保存在当前页面内存，不上传第三方、不写 localStorage。</span>
+                <span>API Key 与学习数据只保存在当前浏览器的 localStorage，不上传第三方；换设备前请导出备份。</span>
               </div>
               <div className="flex items-start gap-2">
                 <Download className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
-                <span>语料、能力画像与随手记可随时在设置中导出为 JSON 备份。</span>
+                <span>语料、能力画像与随手记会自动缓存，并可随时在设置中导出 JSON 备份。</span>
               </div>
             </div>
           </section>
@@ -2104,11 +2297,26 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
         </div>
       )}
 
-      {/* Global Analyzing Banner */}
+      {/* Global Analyzing Banner with progress */}
       {isAnalyzingDump && analyzingSourceLabel && (
-        <div className="fixed top-16 sm:top-20 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[100] bg-slate-900/95 border border-indigo-500 text-indigo-200 px-4 sm:px-5 py-2.5 rounded-2xl sm:rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-bold">
-          <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
-          <span>AI 正在从【{analyzingSourceLabel}】智能拆解可学习的地道表达，请稍候...</span>
+        <div className="fixed top-16 sm:top-20 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:w-[380px] z-[100] bg-slate-900/95 border border-indigo-500 rounded-2xl shadow-2xl px-4 py-3 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-indigo-100">
+            <RefreshCw className="w-4 h-4 animate-spin text-indigo-400 shrink-0" />
+            <span className="truncate">正在拆解【{analyzingSourceLabel}】</span>
+            <span className="ml-auto text-indigo-300 shrink-0">{Math.round(analyzeProgress)}%</span>
+          </div>
+          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 transition-all duration-300"
+              style={{ width: `${analyzeProgress}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
+            <span className="truncate">{analyzeStageText}</span>
+            <span className="shrink-0">
+              {ANALYSIS_MODES.find((m) => m.id === analysisMode)?.label || "平衡"}模式 · {analyzeElapsed}s
+            </span>
+          </div>
         </div>
       )}
 
@@ -2290,6 +2498,26 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
 
       {/* Main Content Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
+        {activeTab === "inbox" && inboxItems.length > 0 && !backupHintDismissed && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[11px] text-amber-200">
+            <Download className="w-4 h-4 shrink-0 text-amber-300" />
+            <span className="flex-1 min-w-[12rem] leading-relaxed">
+              语料已自动保存在当前浏览器。更换设备、浏览器或清理缓存前，请先导出 JSON 备份。
+            </span>
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 font-semibold"
+            >
+              去导出
+            </button>
+            <button
+              onClick={() => setBackupHintDismissed(true)}
+              className="px-2 py-1 text-amber-300/80 hover:text-white"
+            >
+              知道了
+            </button>
+          </div>
+        )}
         {/* ==========================================
             TAB 1: INBOX (CORPUS CARDS & RAW INPUT STREAM)
            ========================================== */}
@@ -2341,6 +2569,30 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     </div>
                   </div>
 
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-slate-400">拆解模式：</span>
+                      <div className="flex rounded-lg border border-slate-800 overflow-hidden">
+                        {ANALYSIS_MODES.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setAnalysisMode(m.id)}
+                            className={`px-2.5 py-1 font-semibold transition-colors ${
+                              analysisMode === m.id
+                                ? "bg-indigo-600 text-white"
+                                : "bg-slate-950 text-slate-400 hover:text-white"
+                            }`}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-[10px] text-slate-500">{currentAnalysisMode.summary}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">{currentAnalysisMode.desc}</p>
+                  </div>
+
                   {isAddingTheme && (
                     <div className="flex items-center gap-2 pt-1">
                       <input
@@ -2376,6 +2628,17 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                       </button>
                     ))}
                   </div>
+
+                  {!hasApiKey && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSettingsModal(true)}
+                      className="w-full text-left text-[11px] px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-center gap-2 leading-relaxed"
+                    >
+                      <Settings className="w-3.5 h-3.5 shrink-0" />
+                      <span>尚未配置 API Key，AI 拆解无法运行。点击这里去设置里填写（硅基流动等均支持）。</span>
+                    </button>
+                  )}
 
                   <button
                     type="submit"
@@ -3335,6 +3598,19 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 <div ref={chatEndRef} />
               </div>
 
+              {!hasApiKey && (
+                <div className="px-3 py-2 bg-amber-500/10 border-t border-amber-500/30 text-[11px] text-amber-200 flex items-center gap-2">
+                  <Settings className="w-3.5 h-3.5 shrink-0" />
+                  <span className="flex-1">尚未配置 API Key，发送后无法获得 AI 回复。</span>
+                  <button
+                    onClick={() => setShowSettingsModal(true)}
+                    className="font-semibold underline shrink-0"
+                  >
+                    去配置
+                  </button>
+                </div>
+              )}
+
               {activeTargetItems.length > 0 && (
                 <div className="md:hidden px-3 py-2 bg-slate-950/80 border-t border-slate-800 flex items-center gap-1.5 overflow-x-auto">
                   <span className="text-[10px] text-slate-500 shrink-0">本局目标</span>
@@ -4017,7 +4293,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                     type="password"
                     value={llmSettings.apiKey}
                     onChange={(e) => setLlmSettings({ ...llmSettings, apiKey: e.target.value })}
-                    placeholder="输入你的 API Key（仅保存在当前页面内存中）..."
+                    placeholder="输入你的 API Key（保存在本浏览器 localStorage 中）..."
                     autoComplete="off"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
                   />
@@ -4055,11 +4331,37 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
                 </button>
               </div>
 
+              {/* AI extraction mode */}
+              <div className="pt-3 border-t border-slate-800 space-y-2">
+                <span className="text-slate-300 font-semibold block">
+                  4. AI 拆解模式（影响速度与 token 消耗）：
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {ANALYSIS_MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setAnalysisMode(m.id)}
+                      className={`px-2.5 py-1 rounded-lg font-semibold border ${
+                        analysisMode === m.id
+                          ? "bg-indigo-600 border-indigo-400 text-white"
+                          : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {m.label} · {m.summary}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">{currentAnalysisMode.desc}</p>
+              </div>
+
               {/* 4. Data Backup: Export & Import */}
               <div className="pt-3 border-t border-slate-800 space-y-2">
                 <span className="text-slate-300 font-semibold block">
-                  4. 数据导出与导入备份 (JSON Backup & Restore)：
+                  5. 数据导出与导入备份 (JSON Backup & Restore)：
                 </span>
+                <p className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 leading-relaxed">
+                  语料、随手记与 API Key 会自动保存在当前浏览器（localStorage）。更换设备、浏览器或清理缓存前，请先导出 JSON 备份；导出的文件不包含 API Key。
+                </p>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={handleExportData}
