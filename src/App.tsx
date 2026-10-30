@@ -1824,6 +1824,7 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
   const startBubbleLongPress = (event, msg) => {
     lastPointerTypeRef.current = event.pointerType || "mouse";
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (msg?.isCue) return;
     cancelBubbleLongPress();
     longPressOriginRef.current = { x: event.clientX, y: event.clientY };
     longPressTimerRef.current = setTimeout(() => {
