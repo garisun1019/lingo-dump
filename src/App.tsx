@@ -95,6 +95,46 @@ const DIALOGUE_LENGTHS = [
   { id: "deep", label: "📜 深度长谈 (3~5句/回合)", promptHint: "Provide rich context and nuanced follow-ups in 3-5 sentences (60-90 words)." }
 ];
 
+// Corpus entries carry a register tag so spoken and written material never get mixed blindly.
+const REGISTER_OPTIONS = [
+  { id: "spoken", label: "🗣 口语", short: "口语", desc: "日常对话、聊天、口语表达", badgeClass: "bg-sky-500/15 text-sky-300 border-sky-500/30" },
+  { id: "written", label: "🖋 书面", short: "书面", desc: "邮件、报告、正式写作", badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  { id: "both", label: "🎚 通用", short: "通用", desc: "口语与书面都能自然使用", badgeClass: "bg-slate-800 text-slate-300 border-slate-700" }
+];
+
+// The arena practises one register at a time; the review grades against the same rubric.
+const DIALOGUE_REGISTERS = [
+  {
+    id: "spoken",
+    label: "🗣 口语对话",
+    desc: "像真人聊天：可用缩写、短句和口语词，复盘按口语标准评分。",
+    promptHint:
+      "Use natural spoken English: contractions, short turns, discourse markers and idioms are welcome. Do not write essay-like prose."
+  },
+  {
+    id: "written",
+    label: "🖋 书面表达",
+    desc: "像邮件或正式留言：完整句式、准确标点，复盘按书面标准评分。",
+    promptHint:
+      "Use natural written English suitable for an email or formal message: complete sentences, precise punctuation and a polished tone. Avoid spoken fillers."
+  }
+];
+
+const normalizeRegister = (value) =>
+  REGISTER_OPTIONS.some((r) => r.id === value) ? value : "both";
+const getRegisterMeta = (value) =>
+  REGISTER_OPTIONS.find((r) => r.id === normalizeRegister(value)) || REGISTER_OPTIONS[2];
+const mergeRegisters = (a, b) => {
+  const left = normalizeRegister(a);
+  const right = normalizeRegister(b);
+  if (left === right) return left;
+  if (left === "both") return right;
+  if (right === "both") return left;
+  return "both";
+};
+const getDialogueRegisterMeta = (value) =>
+  DIALOGUE_REGISTERS.find((r) => r.id === value) || DIALOGUE_REGISTERS[0];
+
 // OpenAI-compatible providers: selecting one fills in base URL + a default model.
 const LLM_PRESETS = [
   { id: "siliconflow", label: "硅基流动", baseUrl: "https://api.siliconflow.cn/v1", modelName: "deepseek-ai/DeepSeek-V3", keyUrl: "https://cloud.siliconflow.cn/account/ak" },
@@ -115,6 +155,7 @@ const INITIAL_INBOX_ITEMS = [
     rawInput: "We have no choice but to bite the bullet and refactor the legacy authentication module before Q4.",
     category: "Idiom",
     cefr: "B2",
+    register: "both",
     meaning: "咬紧牙关应付难关；硬着头皮做某事",
     usageNote: "常接动词原形 (bite the bullet and do sth)，替代 have to do something difficult。",
     tags: ["Workplace", "Decision"],
@@ -133,6 +174,7 @@ const INITIAL_INBOX_ITEMS = [
     rawInput: "Let's circle back to the budget allocation once we have the final vendor quotes next Tuesday.",
     category: "Phrasal Verb",
     cefr: "B2",
+    register: "spoken",
     meaning: "稍后再回头讨论；过段时间再议",
     usageNote: "后接名词或话题 (circle back to [topic])，北美职场极高频，替代 talk about it later。",
     tags: ["Workplace", "Meeting"],
@@ -151,6 +193,7 @@ const INITIAL_INBOX_ITEMS = [
     rawInput: "Just to play devil's advocate here, what happens if our main supplier delays the shipment by a month?",
     category: "Idiom",
     cefr: "C1",
+    register: "both",
     meaning: "唱反调；故意提出反面意见以供探讨",
     usageNote: "常用于 Let me play devil's advocate 或 Just to play devil's advocate，委婉提出异议。",
     tags: ["Debate", "Critical Thinking"],
@@ -169,6 +212,7 @@ const INITIAL_INBOX_ITEMS = [
     rawInput: "By the time the marketing campaign goes live, our engineering team will have resolved all critical bugs.",
     category: "Sentence Pattern",
     cefr: "B2",
+    register: "written",
     meaning: "到……的时候，……就已经完成了（将来完成时句型）",
     usageNote: "前半句用一般现在时表将来，主句用 will have + 过去分词。",
     tags: ["Grammar", "Planning"],
@@ -187,6 +231,7 @@ const INITIAL_INBOX_ITEMS = [
     rawInput: "Before we wrap up, I want to make sure everybody is on the same page regarding the launch timeline.",
     category: "Idiom",
     cefr: "B1",
+    register: "spoken",
     meaning: "达成共识；步调一致；理解一致",
     usageNote: "常搭配 get on the same page 或 be on the same page。",
     tags: ["Workplace", "Alignment"],
@@ -208,6 +253,8 @@ const DEFAULT_SCENARIO = {
   difficulty: "B2 → C1 进阶挑战",
   context:
     "距离 Q4 新功能发布只剩 3 周。Alex 希望立刻上线花哨的 AI 看板，但你深知底层旧代码已经摇摇欲坠。请安抚 Alex，提出反面风险，并推迟次要预算的讨论。",
+  register: "spoken",
+  isFreeForm: false,
   targetIds: ["item-1", "item-2", "item-3"],
   openingLine:
     "Hey! Thanks for jumping on this call. Look, the executives are pressuring us to ship the new AI analytics dashboard by next Friday. I really don't think we have time to touch the old authentication code right now. What's your take?"
@@ -215,6 +262,7 @@ const DEFAULT_SCENARIO = {
 
 const DEMO_REVIEW_DATA = {
   isDemo: true,
+  register: "spoken",
   overallScore: 85,
   hitCount: 2,
   totalTargets: 3,
@@ -312,7 +360,9 @@ const EMPTY_SCENARIO = {
   userRole: "待生成",
   difficulty: "待定",
   context:
-    "在「剧本定制」中选择对话主题、AI 陪练风格与回复篇幅，勾选至少 1 条语料后即可生成属于你的实战剧本。",
+    "在「剧本定制」中选择对话主题、AI 陪练风格与回复篇幅，勾选至少 1 条语料后即可生成属于你的实战剧本。也可以切换到「自由剧本」模式，不依赖语料直接开练。",
+  register: "spoken",
+  isFreeForm: false,
   targetIds: [],
   openingLine: ""
 };
@@ -758,10 +808,11 @@ const buildExtractionSchema = (mode) => {
     target: { type: "STRING" },
     category: { type: "STRING" },
     cefr: { type: "STRING" },
+    register: { type: "STRING", enum: ["spoken", "written", "both"] },
     meaning: { type: "STRING" },
     usageNote: { type: "STRING" }
   };
-  const required = ["target", "category", "cefr", "meaning", "usageNote"];
+  const required = ["target", "category", "cefr", "register", "meaning", "usageNote"];
 
   if (mode !== "economy") {
     properties.priority = { type: "STRING" };
@@ -877,6 +928,7 @@ export default function App() {
   const [filterManualTheme, setFilterManualTheme] = useState("All");
   const [filterPriority, setFilterPriority] = useState("All");
   const [filterMastery, setFilterMastery] = useState("All");
+  const [filterRegister, setFilterRegister] = useState("All");
   const [customManualThemes, setCustomManualThemes] = useState(
     Array.isArray(SAVED_STATE?.customManualThemes)
       ? SAVED_STATE.customManualThemes
@@ -887,14 +939,15 @@ export default function App() {
   const [isSmartClustering, setIsSmartClustering] = useState(false);
 
   // Arena Setup & Script Editor Config
-  const [arenaConfig, setArenaConfig] = useState(
-    SAVED_STATE?.arenaConfig || {
-      themeId: "auto",
-      customTopic: "",
-      styleId: "encouraging",
-      lengthId: "medium"
-    }
-  );
+  const [arenaConfig, setArenaConfig] = useState({
+    themeId: "auto",
+    customTopic: "",
+    styleId: "encouraging",
+    lengthId: "medium",
+    register: "spoken",
+    targetMode: "corpus",
+    ...(SAVED_STATE?.arenaConfig || {})
+  });
   const [draftScenario, setDraftScenario] = useState(
     SAVED_STATE?.draftScenario ||
       (SAVED_ENTRY_MODE === "fresh" ? EMPTY_SCENARIO : DEMO_DRAFT_SCENARIO)
@@ -1096,11 +1149,19 @@ export default function App() {
     setFilterManualTheme("All");
     setFilterPriority("All");
     setFilterMastery("All");
+    setFilterRegister("All");
     setDumpManualTheme("高频核心库");
     setRawInputText("");
     setIsAddingTheme(false);
     setNewManualThemeInput("");
-    setArenaConfig({ themeId: "auto", customTopic: "", styleId: "encouraging", lengthId: "medium" });
+    setArenaConfig({
+      themeId: "auto",
+      customTopic: "",
+      styleId: "encouraging",
+      lengthId: "medium",
+      register: "spoken",
+      targetMode: "corpus"
+    });
     setHitTargets({});
     setLastHitBanner(null);
     setExpandedHintId(null);
@@ -1274,6 +1335,7 @@ export default function App() {
       rawInput: c.rawInput,
       category: c.category || "Idiom",
       cefr: c.cefr || profile.cefr,
+      register: normalizeRegister(c.register),
       meaning: c.meaning,
       usageNote: c.usageNote,
       tags: c.tags || ["QuickAdd"],
@@ -1320,6 +1382,7 @@ export default function App() {
           ...existing,
           patterns: mergedPatterns,
           tags: mergedTags,
+          register: mergeRegisters(existing.register, item.register),
           extraContexts,
           priority: higherPriority(existing.priority, item.priority)
         };
@@ -1342,13 +1405,15 @@ export default function App() {
                 meaning: item.meaning,
                 usageNote: item.usageNote,
                 rawInput: item.rawInput,
-                cefr: item.cefr
+                cefr: item.cefr,
+                register: item.register
               }
             ];
         if (!alreadyThere) newSenseCount += 1;
         next[existingIndex] = {
           ...existing,
           senses,
+          register: mergeRegisters(existing.register, item.register),
           extraContexts: Array.from(
             new Set([...(existing.extraContexts || []), item.rawInput].filter(Boolean))
           ),
@@ -1395,9 +1460,9 @@ export default function App() {
       }[mode.id];
 
       const fieldInstruction = {
-        economy: "Return only these fields per item: target, category, cefr, meaning, usageNote.",
-        balanced: "Return per item: target, category, cefr, meaning, usageNote, priority (\"High\"|\"Medium\"|\"Low\"), patterns (1-3 lowercase inflected forms needed to match the learner's own writing).",
-        detailed: "Return per item: target, category, cefr, meaning, usageNote, priority, priorityReason, aiTheme, tags, patterns (1-3 lowercase inflected forms)."
+        economy: "Return only these fields per item: target, category, cefr, register, meaning, usageNote.",
+        balanced: "Return per item: target, category, cefr, register, meaning, usageNote, priority (\"High\"|\"Medium\"|\"Low\"), patterns (1-3 lowercase inflected forms needed to match the learner's own writing).",
+        detailed: "Return per item: target, category, cefr, register, meaning, usageNote, priority, priorityReason, aiTheme, tags, patterns (1-3 lowercase inflected forms)."
       }[mode.id];
 
       const longInputInstruction =
@@ -1422,11 +1487,13 @@ DICTIONARY NORMALIZATION RULES (highest priority):
 4. Do NOT output the whole sentence. Each target is a reusable chunk (phrasal verb, collocation, idiom, or sentence pattern with [sb]/[sth] placeholders), max 6 words.
 5. Skip proper nouns, numbers, filler words and single low-value words.
 6. Deduplicate: if two items differ only by inflection, keep one canonical entry.
+7. Tag register: "spoken" if the entry is mainly used in conversation/chat, "written" if it belongs to email, reports or formal prose, "both" if it is natural in both. Never force a register you cannot justify.
 
 For each item:
 - target: the normalized reusable entry.
 - category: one of "Idiom", "Phrasal Verb", "Sentence Pattern", "Vocabulary".
 - cefr: one of "A1", "A2", "B1", "B2", "C1", "C2".
+- register: one of "spoken", "written", "both".
 - meaning: concise Chinese definition.
 - usageNote: concise Chinese usage note (collocation / register / pitfall).
 ${fieldInstruction}`;
@@ -1465,6 +1532,7 @@ ${fieldInstruction}`;
         rawInput: cleanText,
         category: EXTRACTION_CATEGORIES.includes(item.category) ? item.category : "Idiom",
         cefr: /^(A1|A2|B1|B2|C1|C2)$/.test(item.cefr || "") ? item.cefr : profile.cefr,
+        register: normalizeRegister(item.register),
         meaning: item.meaning || "地道核心表达",
         usageNote: item.usageNote || "可在相近语境中直接替换使用。",
         priority: ["High", "Medium", "Low"].includes(item.priority) ? item.priority : "High",
@@ -1784,6 +1852,7 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
     setFilterManualTheme("All");
     setFilterPriority("All");
     setFilterMastery("All");
+    setFilterRegister("All");
     setInboxSubView("items");
     setFocusedItemId(itemId);
     setTimeout(() => {
@@ -2081,7 +2150,39 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
   // ==========================================
   // ARENA SETUP & CHAT HANDLERS
   // ==========================================
-  const handleOpenArenaSetup = (useSmartPick = false) => {
+  const buildBlankScenarioDraft = () => ({
+    title: "自定义情景对话 (My Own Scene)",
+    aiRole: "",
+    userRole: "",
+    difficulty: `${profile.cefr} 自由表达`,
+    context: "",
+    openingLine: ""
+  });
+
+  const handleSwitchToFreeScenario = () => {
+    setArenaConfig((prev) => ({ ...prev, targetMode: "free" }));
+    setDraftScenario((prev) =>
+      prev?.title && prev.title !== EMPTY_SCENARIO.title ? prev : buildBlankScenarioDraft()
+    );
+    triggerToast("✍️ 已切换到自由剧本模式：不用语料，直接写剧本开练");
+  };
+
+  const handleCreateBlankScenario = () => {
+    setArenaConfig((prev) => ({ ...prev, targetMode: "free" }));
+    setDraftScenario(buildBlankScenarioDraft());
+    triggerToast("📝 已清空剧本草稿，请填写角色、背景和开场白");
+  };
+
+  const handleOpenArenaSetup = (useSmartPick = false, freeMode = false) => {
+    if (freeMode) {
+      setArenaConfig((prev) => ({ ...prev, targetMode: "free" }));
+      setDraftScenario((prev) =>
+        prev?.title && prev.title !== EMPTY_SCENARIO.title ? prev : buildBlankScenarioDraft()
+      );
+      setActiveTab("arena_setup");
+      return;
+    }
+    setArenaConfig((prev) => ({ ...prev, targetMode: "corpus" }));
     let chosenIds = selectedItemIds;
     if (useSmartPick || !chosenIds || chosenIds.length === 0) {
       const sorted = [...inboxItems].sort((a, b) => {
@@ -2103,16 +2204,18 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
   };
 
   const handleAiGenerateScriptDraft = async () => {
+    const freeMode = arenaConfig.targetMode === "free";
     const chosenItems = inboxItems.filter((i) => selectedItemIds.includes(i.id));
-    if (chosenItems.length === 0) {
-      triggerToast("⚠️ 请先至少勾选 1 个目标表达");
-      return;
+    if (!freeMode && chosenItems.length === 0) {
+      triggerToast("⚠️ 请先至少勾选 1 个目标表达，或切换到「自由剧本」模式");
+      return null;
     }
-    if (!requireApiKey("让 AI 生成剧本")) return;
+    if (!requireApiKey("让 AI 生成剧本")) return null;
     setIsDraftingScript(true);
     const selectedThemeObj = ARENA_THEMES.find((t) => t.id === arenaConfig.themeId) || ARENA_THEMES[0];
     const selectedStyleObj = AI_STYLES.find((s) => s.id === arenaConfig.styleId) || AI_STYLES[0];
     const selectedLengthObj = DIALOGUE_LENGTHS.find((l) => l.id === arenaConfig.lengthId) || DIALOGUE_LENGTHS[1];
+    const selectedRegisterObj = getDialogueRegisterMeta(arenaConfig.register);
     const themeInstruction = arenaConfig.customTopic.trim()
       ? `User specified custom topic: "${arenaConfig.customTopic.trim()}"`
       : `Selected Scenario Theme: ${selectedThemeObj.label}`;
@@ -2131,20 +2234,30 @@ Provide a concise, insightful, encouraging answer in Chinese with 1-2 natural En
         required: ["title", "aiRole", "userRole", "difficulty", "context", "openingLine"]
       };
 
-      const targetsDesc = chosenItems.map((i) => `- "${i.target}" (${i.meaning})`).join("\n");
+      const targetsBlock = freeMode
+        ? "Target expressions: none. This is a free-form scene, so design a situation with enough tension and open questions for a rich conversation."
+        : `Target expressions the learner must practise (weave them naturally into the situation):\n${chosenItems
+            .map((i) => `- "${i.target}" (${i.meaning})`)
+            .join("\n")}`;
+
+      const openingRegisterRule =
+        arenaConfig.register === "written"
+          ? "in natural written English (complete sentences, appropriate punctuation, max 3 sentences)"
+          : "in natural spoken English (max 3 sentences)";
+
       const prompt = `Design one role-play scenario for a CEFR ${profile.cefr} English learner.
 
-Target expressions the learner must practise (weave them naturally into the situation):
-${targetsDesc}
+${targetsBlock}
 
 Preferences:
 - ${themeInstruction}
 - AI persona style: ${selectedStyleObj.label} (${selectedStyleObj.desc})
 - AI turn length: ${selectedLengthObj.promptHint}
+- Practice register: ${selectedRegisterObj.label} — ${selectedRegisterObj.desc}
 
 Hard requirements:
 1. aiRole and userRole are two DIFFERENT real human characters. aiRole is the specific person the learner talks to: a name plus job/relationship plus current demand or mood. aiRole must NEVER be an AI, assistant, bot, coach, narrator, system or virtual character, and must never hint at being artificial.
-2. aiRole speaks FIRST. openingLine is spoken by aiRole in the first person, in natural spoken English (max 3 sentences), greeting/addressing userRole directly and ending with a question or hook the learner can answer. It must not mention AI, models, prompts or being an assistant.
+2. aiRole speaks FIRST. openingLine is written by aiRole in the first person, ${openingRegisterRule}, greeting/addressing userRole directly and ending with a question or hook the learner can answer. It must not mention AI, models, prompts or being an assistant.
 3. userRole is the character the human learner plays, described from the learner's point of view (e.g. "你是……").
 4. context is written in Chinese and addresses the learner as 你 (i.e. userRole): explain the situation, the stakes and what you should achieve in this conversation.
 5. Format aiRole and userRole as "名字（身份 · 当前诉求/情绪）" in Chinese, each 10-30 characters. Use realistic human names.
@@ -2157,62 +2270,77 @@ Return JSON with title, aiRole, userRole, difficulty, context, openingLine.`;
         "You are a creative role-play scenario director for ESL learners. Every character you write is a realistic human being; you never cast an AI assistant as a character.",
         schema
       );
-      setDraftScenario(res);
+      const generated = {
+        ...res,
+        register: arenaConfig.register,
+        isFreeForm: freeMode
+      };
+      setDraftScenario(generated);
       triggerToast("✨ AI 已生成新剧本草稿，你可直接微调编辑或点击开练！");
+      return generated;
     } catch (err) {
-      setDraftScenario({
+      const fallback = {
         title: `${selectedThemeObj.label.replace(/^[^\s]+\s/, "")} · 实战演练`,
         aiRole: "Jordan（合作方项目负责人 · 急于敲定本季度的交付排期）",
         userRole: "项目核心负责人（负责技术落地与资源协调）",
         difficulty: `${profile.cefr} 实战模拟`,
-        context: `围绕主题「${arenaConfig.customTopic || selectedThemeObj.label}」展开对话，自然融入所选的 ${chosenItems.length} 个目标表达。`,
+        context: freeMode
+          ? `围绕主题「${arenaConfig.customTopic || selectedThemeObj.label}」自由展开对话，不需要刻意塞入固定表达，先把观点说清楚、说自然。`
+          : `围绕主题「${arenaConfig.customTopic || selectedThemeObj.label}」展开对话，自然融入所选的 ${chosenItems.length} 个目标表达。`,
         openingLine:
-          "Hey there! Glad we could catch up. We have a few critical decisions to make today—how do you suggest we kick things off?"
-      });
+          arenaConfig.register === "written"
+            ? "Hi, thanks for getting back to me so quickly. I've put together the key points we need to settle today: the scope, the timeline and who owns what. Could you start by telling me your view on the timeline?"
+            : "Hey there! Glad we could catch up. We have a few critical decisions to make today—how do you suggest we kick things off?",
+        register: arenaConfig.register,
+        isFreeForm: freeMode
+      };
+      setDraftScenario(fallback);
       triggerToast(`⚡ AI 生成失败（${formatAiError(err)}），已载入本地剧本模板，可在设置中检查 API 配置`);
+      return fallback;
     } finally {
       setIsDraftingScript(false);
     }
   };
 
-  const handleGenerateAndStartArena = async (useEditedDraftDirectly = true) => {
+  const handleGenerateAndStartArena = async () => {
+    const freeMode = arenaConfig.targetMode === "free";
     const chosenItems = inboxItems.filter((i) => selectedItemIds.includes(i.id));
-    if (chosenItems.length === 0) {
-      triggerToast("⚠️ 请至少选择 1 个需要练习的目标语料");
+    if (!freeMode && chosenItems.length === 0) {
+      triggerToast("⚠️ 请至少选择 1 个需要练习的目标语料，或切换到「自由剧本」模式");
       return;
     }
 
+    let activeDraft = draftScenario;
+    const draftReady = activeDraft?.title && activeDraft?.aiRole && activeDraft?.openingLine;
+    if (!draftReady) {
+      if (freeMode) {
+        triggerToast("⚠️ 请先填写剧本标题、AI 角色和开场白，或点击「让 AI 生成新剧本」");
+        return;
+      }
+      setIsGeneratingScenario(true);
+      const generated = await handleAiGenerateScriptDraft();
+      setIsGeneratingScenario(false);
+      if (!generated) return;
+      activeDraft = generated;
+    }
+
+    const targetIds = freeMode ? [] : selectedItemIds;
+    setScenario({
+      ...activeDraft,
+      targetIds,
+      register: arenaConfig.register,
+      isFreeForm: freeMode
+    });
+    setMessages([
+      {
+        id: `msg-${Date.now()}`,
+        sender: "ai",
+        text: activeDraft.openingLine,
+        timestamp: "Just now"
+      }
+    ]);
     setActiveTab("arena");
     setHitTargets({});
-
-    if (useEditedDraftDirectly && draftScenario.title && draftScenario.openingLine) {
-      setScenario({ ...draftScenario, targetIds: selectedItemIds });
-      setMessages([
-        {
-          id: `msg-${Date.now()}`,
-          sender: "ai",
-          text: draftScenario.openingLine,
-          timestamp: "Just now"
-        }
-      ]);
-      return;
-    }
-
-    setIsGeneratingScenario(true);
-    try {
-      await handleAiGenerateScriptDraft();
-      setScenario({ ...draftScenario, targetIds: selectedItemIds });
-      setMessages([
-        {
-          id: `msg-${Date.now()}`,
-          sender: "ai",
-          text: draftScenario.openingLine,
-          timestamp: "Just now"
-        }
-      ]);
-    } finally {
-      setIsGeneratingScenario(false);
-    }
   };
 
   const detectHitsInMessage = (text, activeTargetItems) =>
@@ -2261,6 +2389,7 @@ Return JSON with title, aiRole, userRole, difficulty, context, openingLine.`;
 
     const selectedStyleObj = AI_STYLES.find((s) => s.id === arenaConfig.styleId) || AI_STYLES[0];
     const selectedLengthObj = DIALOGUE_LENGTHS.find((l) => l.id === arenaConfig.lengthId) || DIALOGUE_LENGTHS[1];
+    const selectedRegisterObj = getDialogueRegisterMeta(scenario.register || arenaConfig.register);
 
     try {
       const unhitItems = activeTargetItems.filter(
@@ -2271,19 +2400,32 @@ Return JSON with title, aiRole, userRole, difficulty, context, openingLine.`;
         .map((m) => `${m.sender === "ai" ? scenario.aiRole : scenario.userRole}: ${m.text}`)
         .join("\n");
 
+      const targetInstruction =
+        activeTargetItems.length > 0
+          ? `Expressions the learner still needs to practise: ${
+              unhitItems.map((u) => `"${u.target}" (${u.meaning})`).join(", ") ||
+              "All targets hit! Wrap up naturally."
+            }`
+          : "No preset target expressions this round. Keep the scene moving and push the learner to elaborate with concrete details, opinions and examples.";
+
       const prompt = `Role-play scenario: ${scenario.title}
 Who you are: ${scenario.aiRole} — a real human being in this scene. You never step out of this identity.
 Who the learner is: ${scenario.userRole}
 Scene context: ${scenario.context}
 Your conversational style: ${selectedStyleObj.promptHint}
+Register: ${selectedRegisterObj.label}. ${selectedRegisterObj.promptHint}
 Length constraint: ${selectedLengthObj.promptHint}
 
 Conversation so far:
 ${historyText}
 
-Expressions the learner still needs to practise: ${unhitItems.map((u) => `"${u.target}" (${u.meaning})`).join(", ") || "All targets hit! Wrap up naturally."}
+${targetInstruction}
 
-Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in character as a real person: never mention AI, models, prompts, coaching or being an assistant, and never narrate from outside the scene. End with something that invites the learner to use one of the remaining expressions.`;
+Reply as ${scenario.aiRole} only. Stay fully in character as a real person: never mention AI, models, prompts, coaching or being an assistant, and never narrate from outside the scene. ${
+        activeTargetItems.length > 0
+          ? "End with something that invites the learner to use one of the remaining expressions."
+          : "End with a question that invites the learner to expand their answer."
+      }`;
 
       const aiReply = await callGeminiAPI(
         prompt,
@@ -2555,6 +2697,12 @@ Reply as ${scenario.aiRole} only, in natural spoken English. Stay fully in chara
       required: ["overallScore", "scoreDelta", "cefrProgress", "assessmentSummary", "dimensionChanges", "sentenceUpgrades", "weaknessDrills"]
     };
 
+    const reviewRegister = getDialogueRegisterMeta(scenario.register || arenaConfig.register);
+    const isSpokenReview = reviewRegister.id === "spoken";
+    const registerRubric = isSpokenReview
+      ? "SPOKEN rubric: judge natural spoken English. Contractions, informal words, discourse markers, short answers and sentence fragments are acceptable and must NOT be penalised as grammar mistakes. Reward fluency, natural rhythm and idiomatic phrasing over written formality."
+      : "WRITTEN rubric: judge written English. Check complete sentences, punctuation, connectors, precision and tone appropriate to an email or formal message. Spoken fillers and fragmentary wording are errors here.";
+
     const prompt = `Evaluate this role-play practice session and produce a review report based ONLY on what the learner actually wrote.
 
 SCENARIO
@@ -2562,6 +2710,8 @@ Title: ${scenario.title}
 AI character: ${scenario.aiRole}
 Learner character: ${scenario.userRole}
 Setting: ${scenario.context}
+Practice register: ${reviewRegister.label} — ${reviewRegister.desc}
+${registerRubric}
 
 TARGET EXPRESSIONS THIS ROUND (${hitCount}/${totalTargets} hit):
 ${targetLines}
@@ -2571,10 +2721,16 @@ ${transcript}
 
 RULES
 1. Quote the learner's utterances verbatim. Never invent, merge or "improve" a sentence the learner did not write.
-2. sentenceUpgrades: pick 1-3 of the learner's actual sentences that are worth polishing (prefer ones containing a target expression). anchoredText keeps at least 80% of the learner's original words and structure; nativeText is the fully idiomatic upgrade. All explanations in Simplified Chinese.
-3. weaknessDrills: cover every expression marked MISSED (max 3). If all targets were hit, pick up to 2 targets that were used awkwardly or could be more natural, and set status to "Needs reinforcement 已踩点但可更自然". targetId MUST be copied exactly from the list above. originalUserSentence must be an actual learner sentence that tried to express that idea (or the most relevant learner sentence). trapPrompt is one in-character line from the AI character that baits the target expression.
-4. Scores: overallScore reflects this session (0-100), scoreDelta is the change applied to the learner's current level (between -5 and +8). dimensionChanges are short signed strings like "+3" or "-1".
-5. assessmentSummary: 2-3 Chinese sentences, name the exact expressions the learner used or missed.
+2. sentenceUpgrades: pick 1-3 of the learner's actual sentences that are worth polishing (prefer ones containing a target expression). anchoredText keeps at least 80% of the learner's original words and structure; nativeText is the fully idiomatic upgrade. The upgrade must stay in the practice register: ${
+      isSpokenReview ? "keep it natural spoken English (contractions and spoken rhythm are fine)." : "keep it polished written English (complete sentences, precise connectors)."
+    } All explanations in Simplified Chinese.
+3. weaknessDrills: ${
+      targetItems.length > 0
+        ? 'cover every expression marked MISSED (max 3). If all targets were hit, pick up to 2 targets that were used awkwardly or could be more natural, and set status to "Needs reinforcement 已踩点但可更自然". targetId MUST be copied exactly from the list above.'
+        : "this was a free conversation with no preset targets: return an empty weaknessDrills array."
+    } originalUserSentence must be an actual learner sentence that tried to express that idea (or the most relevant learner sentence). trapPrompt is one in-character line from the AI character that baits the target expression.
+4. Scores: overallScore reflects this session (0-100) under the ${reviewRegister.label} rubric, scoreDelta is the change applied to the learner's current level (between -5 and +8). dimensionChanges are short signed strings like "+3" or "-1". Grammar must be judged by the practice register, not by written-essay standards when practising spoken English.
+5. assessmentSummary: 2-3 Chinese sentences, name the exact expressions the learner used or missed, and state whether the register was natural.
 6. If the learner's sentence is already natural, say so in diffExplanation instead of faking a big upgrade.
 7. Never mention AI, models or prompts inside quoted role-play lines.`;
 
@@ -2656,6 +2812,7 @@ RULES
 
       const nextReview = {
         isDemo: false,
+        register: reviewRegister.id,
         overallScore: newScore,
         hitCount,
         totalTargets,
@@ -2713,6 +2870,11 @@ RULES
         ? `Original learner sentence: "${drill.modeA_Rewrite.originalUserSentence}"\nTask: rewrite it naturally using the target expression.`
         : `One-shot prompt: ${drill.modeB_Trap.aiPrompt}\nTask: reply in one sentence using the target expression.`;
     const targetItem = inboxItems.find((item) => item.id === drill.targetId);
+    const drillRegister = getDialogueRegisterMeta(reviewData?.register || scenario.register || arenaConfig.register);
+    const drillRegisterRule =
+      drillRegister.id === "spoken"
+        ? "This drill targets spoken English: contractions, informal wording and natural spoken rhythm are correct; do not mark them as errors."
+        : "This drill targets written English: require complete sentences, accurate punctuation and an appropriate formal tone.";
 
     setDrillFeedbacks((prev) => ({ ...prev, [drill.id]: { loading: true } }));
     try {
@@ -2721,12 +2883,14 @@ RULES
 
 TARGET EXPRESSION: "${drill.target}" (${drill.meaning})
 USAGE NOTE: ${targetItem?.usageNote || ""}
+REGISTER: ${drillRegister.label}
+${drillRegisterRule}
 ${task}
 LEARNER ANSWER: "${userAns}"
 REFERENCE ANSWER: "${ideal}"
 
-Judge only: (1) is the target expression used correctly and naturally, (2) is the sentence grammatical and appropriate for the scene. Accept minor paraphrases and different but valid contexts. Do not require matching the reference answer.
-Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplified Chinese (1-2 sentences naming one concrete strength and one fix), correctedSentence (a natural polished version of the learner's own answer), tip (one short Chinese takeaway, may be empty).`,
+Judge only: (1) is the target expression used correctly and naturally, (2) is the sentence grammatical and appropriate for the scene and the chosen register. Accept minor paraphrases and different but valid contexts. Do not require matching the reference answer.
+Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplified Chinese (1-2 sentences naming one concrete strength and one fix), correctedSentence (a natural polished version of the learner's own answer, kept in the same register), tip (one short Chinese takeaway, may be empty).`,
         "You are an experienced ESL speaking coach grading a single drill attempt fairly and specifically.",
         {
           type: "OBJECT",
@@ -2827,7 +2991,8 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
     const manualMatch = filterManualTheme === "All" || item.manualTheme === filterManualTheme;
     const prioMatch = filterPriority === "All" || item.priority === filterPriority;
     const mastMatch = filterMastery === "All" || String(item.mastery) === filterMastery;
-    return catMatch && aiMatch && manualMatch && prioMatch && mastMatch;
+    const registerMatch = filterRegister === "All" || normalizeRegister(item.register) === filterRegister;
+    return catMatch && aiMatch && manualMatch && prioMatch && mastMatch && registerMatch;
   });
 
   const groupedRawInputs = Object.values(
@@ -3084,8 +3249,14 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                 {
                   icon: <BookOpen className="w-5 h-5 text-indigo-300" />,
                   title: "智能语料库 & 原始输入流",
-                  desc: "语料卡片与原文双向内联高亮：原句里已收录的片段直接高亮，点击即可跳转卡片。支持 AI 主题、人工主题、类别、优先级、掌握度交叉筛选。",
-                  chips: ["双向高亮", "多维筛选", "批量整理"]
+                  desc: "语料卡片与原文双向内联高亮：原句里已收录的片段直接高亮，点击即可跳转卡片。每条语料带口语/书面/通用语体标签，并支持 AI 主题、人工主题、类别、语体、优先级、掌握度交叉筛选。",
+                  chips: ["双向高亮", "语体标签", "多维筛选", "批量整理"]
+                },
+                {
+                  icon: <MessageSquare className="w-5 h-5 text-emerald-300" />,
+                  title: "语料踩点 & 自由剧本双模式",
+                  desc: "既可以用自己的语料生成踩点剧本，也可以完全不用语料，自定义角色、背景与开场白直接开聊。对话中的好句子随时点气泡按钮拆解入库。",
+                  chips: ["自由剧本", "自定义角色", "气泡收录"]
                 },
                 {
                   icon: <Lightbulb className="w-5 h-5 text-amber-300" />,
@@ -3716,6 +3887,13 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                     <span>按弱点智能选词并配置</span>
                   </button>
                 </div>
+                <button
+                  onClick={() => handleOpenArenaSetup(false, true)}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 border border-dashed border-emerald-500/40 text-emerald-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  <span>✍️ 不用语料：自定义剧本自由对话</span>
+                </button>
               </div>
             </div>
 
@@ -3761,7 +3939,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
               {/* Multi-Dimensional Filter Bar & Batch Operations */}
               {inboxSubView === "items" && (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 space-y-3">
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                     <select
                       value={filterAiTheme}
                       onChange={(e) => setFilterAiTheme(e.target.value)}
@@ -3802,6 +3980,19 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                       <option value="Phrasal Verb">Phrasal Verb (短语)</option>
                       <option value="Sentence Pattern">Sentence Pattern (句型)</option>
                       <option value="Vocabulary">Vocabulary (词汇)</option>
+                    </select>
+
+                    <select
+                      value={filterRegister}
+                      onChange={(e) => setFilterRegister(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+                    >
+                      <option value="All">🎙️ 语体: 全部</option>
+                      {REGISTER_OPTIONS.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.label}
+                        </option>
+                      ))}
                     </select>
 
                     <select
@@ -3871,6 +4062,24 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                           <option value="1">1 - 弱点待强化</option>
                           <option value="2">2 - 初步掌握</option>
                           <option value="3">3 - 已内化</option>
+                        </select>
+
+                        <select
+                          onChange={(e) => {
+                            if (e.target.value) handleBatchUpdateField("register", e.target.value);
+                            e.target.value = "";
+                          }}
+                          defaultValue=""
+                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-slate-200"
+                        >
+                          <option value="" disabled>
+                            批量改语体...
+                          </option>
+                          {REGISTER_OPTIONS.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              设为 {r.short}
+                            </option>
+                          ))}
                         </select>
 
                         <select
@@ -3998,6 +4207,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                             setFilterManualTheme("All");
                             setFilterPriority("All");
                             setFilterMastery("All");
+                            setFilterRegister("All");
                           }}
                           className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold"
                         >
@@ -4010,6 +4220,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                     const isSelected = selectedItemIds.includes(item.id);
                     const isFocused = focusedItemId === item.id;
                     const masteryBadge = getMasteryBadge(item.mastery);
+                    const registerMeta = getRegisterMeta(item.register);
                     return (
                       <div
                         id={`inbox-card-${item.id}`}
@@ -4045,6 +4256,12 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                                   <h4 className="font-bold text-base text-white">{item.target}</h4>
                                   <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-800 text-indigo-300 font-semibold border border-slate-700">
                                     {item.category} · {item.cefr}
+                                  </span>
+                                  <span
+                                    className={`text-[11px] px-2 py-0.5 rounded-md border font-semibold ${registerMeta.badgeClass}`}
+                                    title={registerMeta.desc}
+                                  >
+                                    {registerMeta.label}
                                   </span>
                                   {item.aiTheme && (
                                     <span className="text-[11px] px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30">
@@ -4104,6 +4321,20 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                                     <option value={1}>1 · 弱点待强化</option>
                                     <option value={2}>2 · 初步掌握</option>
                                     <option value={3}>3 · 已内化</option>
+                                  </select>
+
+                                  <select
+                                    value={normalizeRegister(item.register)}
+                                    onChange={(e) =>
+                                      handleSingleUpdateField(item.id, "register", e.target.value, e)
+                                    }
+                                    className={`bg-slate-950 border rounded-lg px-2 py-0.5 text-[11px] font-semibold ${registerMeta.badgeClass}`}
+                                  >
+                                    {REGISTER_OPTIONS.map((r) => (
+                                      <option key={r.id} value={r.id}>
+                                        {r.label}
+                                      </option>
+                                    ))}
                                   </select>
 
                                   <select
@@ -4240,7 +4471,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                 <div>
                   <h2 className="text-xl font-bold text-white">剧本定制与演练配置 (Scenario Setup & Editor)</h2>
                   <p className="text-xs text-slate-400">
-                    先选择对话主题、AI 对练风格与篇幅长短，你还可以让 AI 预生成新剧本或直接手动编辑剧本台词后开练！
+                    选择语料踩点或自由剧本，配置主题、AI 风格、篇幅与口语/书面语体，再预览或手写剧本即可开练！
                   </p>
                 </div>
               </div>
@@ -4252,35 +4483,95 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
               </button>
             </div>
 
-            {/* 1. Selected Target Expressions */}
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5">
-              <div className="flex items-center justify-between">
+            {/* 1. Practice mode & Selected Target Expressions */}
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <label className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
                   <Target className="w-4 h-4 text-emerald-400" />
-                  <span>1. 本局需要踩点的目标表达 ({selectedItemIds.length} 项)：</span>
+                  <span>1. 演练模式与目标表达</span>
                 </label>
-                <button onClick={() => setActiveTab("inbox")} className="text-[11px] text-indigo-400 hover:underline">
-                  去增删目标语料
-                </button>
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800 text-[11px] font-bold self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setArenaConfig({ ...arenaConfig, targetMode: "corpus" })}
+                    className={`px-3 py-1.5 rounded-lg transition-colors ${
+                      arenaConfig.targetMode === "free"
+                        ? "text-slate-400 hover:text-slate-200"
+                        : "bg-indigo-600 text-white shadow"
+                    }`}
+                  >
+                    🎯 语料踩点
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSwitchToFreeScenario}
+                    className={`px-3 py-1.5 rounded-lg transition-colors ${
+                      arenaConfig.targetMode === "free"
+                        ? "bg-emerald-600 text-white shadow"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    ✍️ 自由剧本
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {selectedItemIds.length === 0 && (
-                  <p className="text-xs text-slate-400">
-                    还没有勾选目标语料。先回语料库点击卡片勾选，或点击右上角「去增删目标语料」。
+
+              {arenaConfig.targetMode === "free" ? (
+                <div className="rounded-xl bg-emerald-950/20 border border-emerald-500/30 p-3 space-y-2">
+                  <p className="text-xs text-emerald-100 leading-relaxed">
+                    自由剧本模式：<strong>不需要任何语料</strong>。直接在下方填写 AI 角色、你的角色、背景与开场白（或让 AI 按主题生成），就能开练。对话中随时点气泡旁的
+                    <strong>「+ AI 拆解收入 Inbox」</strong>，把值得学的句子收进语料库。
                   </p>
-                )}
-                {inboxItems
-                  .filter((i) => selectedItemIds.includes(i.id))
-                  .map((it) => (
-                    <div
-                      key={it.id}
-                      className="px-3 py-1.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-2"
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCreateBlankScenario}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-[11px] text-emerald-200 font-semibold"
                     >
-                      <span className="font-bold text-white">🎯 {it.target}</span>
-                      <span className="text-slate-400">({it.meaning})</span>
-                    </div>
-                  ))}
-              </div>
+                      📝 新建空白剧本
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setArenaConfig({ ...arenaConfig, targetMode: "corpus" })}
+                      className="px-2.5 py-1 rounded-lg text-[11px] text-slate-400 hover:text-white"
+                    >
+                      切回语料踩点
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">
+                      本局目标表达（{selectedItemIds.length} 项）
+                    </span>
+                    <button onClick={() => setActiveTab("inbox")} className="text-[11px] text-indigo-400 hover:underline">
+                      去增删目标语料
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedItemIds.length === 0 && (
+                      <p className="text-xs text-slate-400">
+                        还没有勾选目标语料。先回语料库点击卡片勾选，或点击右上角「去增删目标语料」；也可以切换到「自由剧本」不用语料直接开练。
+                      </p>
+                    )}
+                    {inboxItems
+                      .filter((i) => selectedItemIds.includes(i.id))
+                      .map((it) => (
+                        <div
+                          key={it.id}
+                          className="px-3 py-1.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-2"
+                        >
+                          <span className="font-bold text-white">🎯 {it.target}</span>
+                          <span className="text-slate-400">({it.meaning})</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getRegisterMeta(it.register).badgeClass}`}>
+                            {getRegisterMeta(it.register).short}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* 2. Theme, Style, Length Configuration */}
@@ -4340,6 +4631,35 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   ))}
                 </select>
               </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-xs font-semibold text-slate-300 block">
+                  5. 本次对话语体（同时决定 AI 回复与复盘评分标准）：
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {DIALOGUE_REGISTERS.map((r) => (
+                    <button
+                      type="button"
+                      key={r.id}
+                      onClick={() => setArenaConfig({ ...arenaConfig, register: r.id })}
+                      className={`text-left px-3.5 py-2.5 rounded-xl border transition-all ${
+                        arenaConfig.register === r.id
+                          ? "bg-emerald-500/10 border-emerald-500/50"
+                          : "bg-slate-950 border-slate-800 hover:border-slate-700"
+                      }`}
+                    >
+                      <span
+                        className={`text-xs font-bold ${
+                          arenaConfig.register === r.id ? "text-emerald-300" : "text-white"
+                        }`}
+                      >
+                        {r.label}
+                      </span>
+                      <p className="text-[10px] text-slate-400 leading-relaxed mt-0.5">{r.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* 3. Editable Scenario Script Preview & AI Generator */}
@@ -4348,10 +4668,12 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                 <div>
                   <h3 className="font-bold text-sm text-white flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>5. 预览与手动编辑剧本设定 (Editable Script)</span>
+                    <span>6. 预览与手动编辑剧本设定 (Editable Script)</span>
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    你可以点击右侧按钮让 AI 根据上方所选主题/风格重新生成剧本，也可以直接在输入框内修改角色、背景与第一句台词！
+                    {arenaConfig.targetMode === "free"
+                      ? "自由剧本模式：角色、背景和开场白都可以手写，也可以让 AI 按上方主题/语体生成。填写完整后即可直接开始对话。"
+                      : "你可以点击右侧按钮让 AI 根据上方所选主题/风格重新生成剧本，也可以直接在输入框内修改角色、背景与第一句台词！"}
                   </p>
                 </div>
                 <button
@@ -4371,6 +4693,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                     type="text"
                     value={draftScenario.title}
                     onChange={(e) => setDraftScenario({ ...draftScenario, title: e.target.value })}
+                    placeholder="例如：辞职前的最后一杯咖啡 (One Last Coffee)"
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
@@ -4380,6 +4703,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                     type="text"
                     value={draftScenario.aiRole}
                     onChange={(e) => setDraftScenario({ ...draftScenario, aiRole: e.target.value })}
+                    placeholder="名字（身份 · 当前诉求/情绪）"
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
@@ -4389,6 +4713,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                     type="text"
                     value={draftScenario.userRole}
                     onChange={(e) => setDraftScenario({ ...draftScenario, userRole: e.target.value })}
+                    placeholder="例如：你是正在考虑转行的产品经理"
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
@@ -4400,6 +4725,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   rows={2}
                   value={draftScenario.context}
                   onChange={(e) => setDraftScenario({ ...draftScenario, context: e.target.value })}
+                  placeholder="用中文描述场景、冲突和你这次想达成的目标"
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none resize-none"
                 />
               </div>
@@ -4410,6 +4736,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   rows={2}
                   value={draftScenario.openingLine}
                   onChange={(e) => setDraftScenario({ ...draftScenario, openingLine: e.target.value })}
+                  placeholder="AI 角色的第一句英文台词（它会先开口）"
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-emerald-200 focus:border-indigo-500 focus:outline-none resize-none"
                 />
               </div>
@@ -4430,7 +4757,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
 
               <div className="flex items-center gap-3 w-full sm:w-auto">
                 <button
-                  onClick={() => handleGenerateAndStartArena(true)}
+                  onClick={() => handleGenerateAndStartArena()}
                   className="w-full sm:w-auto px-4 sm:px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30"
                 >
                   <Play className="w-4 h-4 fill-white" />
@@ -4452,13 +4779,18 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">
                     当前剧本设定
                   </span>
-                  <button
-                    onClick={() => setActiveTab("arena_setup")}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    <span>编辑剧本/风格</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-semibold">
+                      {getDialogueRegisterMeta(scenario.register || arenaConfig.register).label}
+                    </span>
+                    <button
+                      onClick={() => setActiveTab("arena_setup")}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      <span>编辑剧本/风格</span>
+                    </button>
+                  </div>
                 </div>
 
                 <h2 className="font-bold text-base text-white">{scenario.title}</h2>
@@ -4485,15 +4817,23 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                     <h3 className="font-bold text-sm text-white">本局踩点看板 (Target Tracker)</h3>
                   </div>
                   <span className="text-xs font-bold text-emerald-400">
-                    已点亮 {Object.keys(hitTargets).length} / {activeTargetItems.length}
+                    {scenario.isFreeForm
+                      ? "自由对话"
+                      : `已点亮 ${Object.keys(hitTargets).length} / ${activeTargetItems.length}`}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 -mt-2 mb-2">点击目标表达可直接填入输入框</p>
+                <p className="text-[11px] text-slate-500 -mt-2 mb-2">
+                  {scenario.isFreeForm
+                    ? "自由剧本不设目标语料，点气泡旁按钮即可拆解入库"
+                    : "点击目标表达可直接填入输入框"}
+                </p>
 
                 <div className="space-y-2.5">
                   {activeTargetItems.length === 0 && (
                     <p className="text-xs text-slate-400">
-                      本局还没有目标语料。去「剧本定制」勾选至少 1 条表达后再开练。
+                      {scenario.isFreeForm
+                        ? "本局不限定目标表达。自由发挥即可，遇到好句子可点气泡旁的「+ AI 拆解收入 Inbox」收进语料库。"
+                        : "本局还没有目标语料。去「剧本定制」勾选至少 1 条表达后再开练。"}
                     </p>
                   )}
                   {activeTargetItems.map((item) => {
@@ -4568,19 +4908,24 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="w-2.5 h-2.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="font-bold text-sm text-white truncate">{scenario.aiRole}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-semibold shrink-0">
+                    {getDialogueRegisterMeta(scenario.register || arenaConfig.register).label}
+                  </span>
                   <span className="text-[11px] text-slate-400 hidden sm:inline">
                     (划选或点气泡旁按钮可拆解入库 · 长按气泡看中文译文)
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={handleGiveMeACue}
-                    className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold flex items-center gap-1"
-                  >
-                    <HelpCircle className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">让 AI 递话柄</span>
-                    <span className="sm:hidden">递话柄</span>
-                  </button>
+                  {activeTargetItems.length > 0 && (
+                    <button
+                      onClick={handleGiveMeACue}
+                      className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] sm:text-xs font-semibold flex items-center gap-1"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">让 AI 递话柄</span>
+                      <span className="sm:hidden">递话柄</span>
+                    </button>
+                  )}
                   <button
                     onClick={handleFinishAndEvaluate}
                     className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow"
@@ -4616,7 +4961,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                         <MessageSquare className="w-7 h-7 text-slate-600" />
                         <p className="text-sm font-semibold text-slate-300">剧本还没有开场白</p>
                         <p className="text-xs max-w-sm leading-relaxed">
-                          回到「剧本定制」，勾选目标语料并让 AI 生成剧本，或手动填写开场白台词后再开始对话。
+                          回到「剧本定制」，选择语料踩点或自由剧本，填写开场白后再开始对话。
                         </p>
                       </div>
                     )}
@@ -4752,7 +5097,11 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                  placeholder="用英语回复…"
+                  placeholder={
+                    (scenario.register || arenaConfig.register) === "written"
+                      ? "用英语写下你的回复…"
+                      : "用英语回复…"
+                  }
                   className="flex-1 min-w-0 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
                 <button
@@ -4807,7 +5156,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                 <Award className="w-9 h-9 text-slate-600 mx-auto" />
                 <h3 className="text-lg font-bold text-white">还没有可复盘的对话</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  先勾选几条目标语料进入剧本实战，结束对话后这里会生成逐句原句升华对比与弱点靶向特训。
+                  先进入剧本实战聊上几轮（语料踩点或自由剧本都可以），结束对话后这里会生成逐句原句升华对比与弱点靶向特训。
                 </p>
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
                   <button
@@ -4836,7 +5185,9 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                     </div>
                     <div>
                       <div className="text-xs text-emerald-400 font-bold mb-1">
-                        🎯 踩点率：{reviewData.hitCount} / {reviewData.totalTargets} 目标表达
+                        {reviewData.totalTargets > 0
+                          ? `🎯 踩点率：${reviewData.hitCount} / ${reviewData.totalTargets} 目标表达`
+                          : "🎙️ 自由对话 · 本局未指定目标语料"}
                       </div>
                       <div className="text-sm font-bold text-white">
                         动态能力：{reviewData.proficiencyUpdate.oldScore} →{" "}
@@ -4848,6 +5199,9 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   <div className="lg:col-span-8 space-y-2">
                     <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-indigo-300">
                       <span>AI 诊断总结：</span>
+                      <span className="px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-semibold">
+                        {getDialogueRegisterMeta(reviewData.register || scenario.register || arenaConfig.register).label} 评分
+                      </span>
                       {reviewData.isDemo && (
                         <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px] font-semibold">
                           示例报告（非本轮对话）
@@ -5185,6 +5539,13 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                         <span className="inline-block text-[11px] font-normal px-2 py-0.5 rounded bg-slate-800 text-indigo-300 whitespace-nowrap">
                           {cand.category} · {cand.cefr}
                         </span>
+                        <span
+                          className={`ml-1.5 inline-block text-[11px] px-2 py-0.5 rounded border font-semibold whitespace-nowrap ${getRegisterMeta(
+                            cand.register
+                          ).badgeClass}`}
+                        >
+                          {getRegisterMeta(cand.register).label}
+                        </span>
                         {existingMatch && (
                           <span className="ml-1.5 inline-block text-[11px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
                             {meaningsAreClose(existingMatch.meaning, cand.meaning)
@@ -5198,6 +5559,23 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                           className="flex items-center gap-2 pt-1"
                           onClick={(e) => e.stopPropagation()}
                         >
+                          <span className="text-[10px] text-slate-500">入库语体</span>
+                          <select
+                            value={normalizeRegister(cand.register)}
+                            onChange={(e) => {
+                              const updated = extractionModalData.candidates.map((c) =>
+                                c.tempId === cand.tempId ? { ...c, register: e.target.value } : c
+                              );
+                              setExtractionModalData({ ...extractionModalData, candidates: updated });
+                            }}
+                            className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-sky-300"
+                          >
+                            {REGISTER_OPTIONS.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.label}
+                              </option>
+                            ))}
+                          </select>
                           <span className="text-[10px] text-slate-500">入库优先级</span>
                           <select
                             value={cand.priority}
