@@ -339,7 +339,8 @@ const DEMO_REVIEW_DATA = {
           "Just to play devil's advocate, what happens if a critical bug slips through into production?"
       }
     }
-  ]
+  ],
+  corpusSuggestions: []
 };
 
 const DEMO_NOTE_CONTENT = "Let's not get bogged down in minor UI details right now.";
@@ -392,7 +393,8 @@ const EMPTY_REVIEW_DATA = {
     assessmentSummary: ""
   },
   sentenceUpgrades: [],
-  weaknessDrills: []
+  weaknessDrills: [],
+  corpusSuggestions: []
 };
 
 // ==========================================
@@ -423,6 +425,60 @@ const ANALYSIS_MODE_LIMITS = {
   balanced: { maxItems: 3, maxTokens: 1200 },
   detailed: { maxItems: 5, maxTokens: 1800 }
 };
+
+const ANALYSIS_FOCUS_OPTIONS = [
+  {
+    id: "word",
+    label: "单词",
+    desc: "只拆单词语料（lemma 原形），快速补词汇量。"
+  },
+  {
+    id: "sentence",
+    label: "句子",
+    desc: "只拆可复用句型框架，带 [sb]/[sth] 占位与匹配锚点。"
+  },
+  {
+    id: "mixed",
+    label: "混合",
+    desc: "单词、词组、句型都拆，默认侧重。"
+  }
+];
+
+const normalizeAnalysisFocus = (value) =>
+  ANALYSIS_FOCUS_OPTIONS.some((option) => option.id === value) ? value : "mixed";
+
+// Sentence frames cannot be matched by their literal text, so keep a short
+// leading anchor for hit detection when the model omits patterns.
+const buildSentenceAnchor = (target) => {
+  const words = String(target || "")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/[^a-zA-Z'\s-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  // shortcut: heuristic leading anchor, upgrade if frames still miss hits
+  return (words.slice(0, 3).join(" ") || String(target || "")).toLowerCase();
+};
+
+const countTargetWords = (target) => normalizePhraseTokens(target).length;
+
+const AnalysisFocusPicker = ({ value, onChange }) => (
+  <div className="flex rounded-lg border border-slate-800 overflow-hidden">
+    {ANALYSIS_FOCUS_OPTIONS.map((option) => (
+      <button
+        key={option.id}
+        type="button"
+        onClick={() => onChange(option.id)}
+        className={`px-2.5 py-1 font-semibold transition-colors ${
+          normalizeAnalysisFocus(value) === option.id
+            ? "bg-indigo-600 text-white"
+            : "bg-slate-950 text-slate-400 hover:text-white"
+        }`}
+      >
+        {option.label}
+      </button>
+    ))}
+  </div>
+);
 
 const EXTRACTION_CATEGORIES = ["Idiom", "Phrasal Verb", "Sentence Pattern", "Vocabulary"];
 const STOPWORD_TARGETS = new Set([
@@ -773,16 +829,24 @@ const meaningsAreClose = (a, b) => {
 const priorityRank = (p) => (p === "High" ? 3 : p === "Medium" ? 2 : p === "Low" ? 1 : 0);
 const higherPriority = (a, b) => (priorityRank(b) > priorityRank(a) ? b : a);
 
-const getAdaptiveExtractionLimits = (modeId, text) => {
+const getAdaptiveExtractionLimits = (modeId, text, focus = "mixed") => {
   const base = ANALYSIS_MODE_LIMITS[modeId] || ANALYSIS_MODE_LIMITS.balanced;
   const len = String(text || "").trim().length;
   const longInput = len > 1200;
   const mediumInput = len > 500;
   const itemMultiplier = longInput ? 1.8 : mediumInput ? 1.3 : 1;
   const tokenMultiplier = longInput ? 2.4 : mediumInput ? 1.6 : 1;
+  const focusItemBonus = focus === "word" ? 2 : focus === "mixed" ? 1 : 0;
+  const focusTokenMultiplier = focus === "word" ? 0.85 : focus === "sentence" ? 1.4 : 1.15;
   return {
-    maxItems: Math.min(9, Math.max(base.maxItems, Math.round(base.maxItems * itemMultiplier))),
-    maxTokens: Math.min(5000, Math.round(base.maxTokens * tokenMultiplier))
+    maxItems: Math.min(9, Math.round(base.maxItems * itemMultiplier) + focusItemBonus),
+    maxTokens: Math.min(
+      5000,
+      Math.max(
+        600,
+        Math.round(base.maxTokens * tokenMultiplier * focusTokenMultiplier)
+      )
+    )
   };
 };
 
@@ -803,7 +867,7 @@ const pickExtractedItems = (result) => {
   return Array.isArray(firstArray) ? firstArray : [];
 };
 
-const buildExtractionSchema = (mode) => {
+const buildExtractionSchema = (mode, focus = "mixed") => {
   const properties = {
     target: { type: "STRING" },
     category: { type: "STRING" },
@@ -816,8 +880,11 @@ const buildExtractionSchema = (mode) => {
 
   if (mode !== "economy") {
     properties.priority = { type: "STRING" };
+    required.push("priority");
+  }
+  if (mode !== "economy" || focus !== "word") {
     properties.patterns = { type: "ARRAY", items: { type: "STRING" } };
-    required.push("priority", "patterns");
+    required.push("patterns");
   }
   if (mode === "detailed") {
     properties.priorityReason = { type: "STRING" };
@@ -877,6 +944,12 @@ export default function App() {
   const [analysisMode, setAnalysisMode] = useState(
     ANALYSIS_MODES.some((m) => m.id === SAVED_STATE?.analysisMode) ? SAVED_STATE.analysisMode : "balanced"
   );
+  const [globalAnalysisFocus, setGlobalAnalysisFocus] = useState(
+    normalizeAnalysisFocus(SAVED_STATE?.globalAnalysisFocus)
+  );
+  const [analysisFocus, setAnalysisFocus] = useState(
+    normalizeAnalysisFocus(SAVED_STATE?.analysisFocus || SAVED_STATE?.globalAnalysisFocus)
+  );
   const [backupHintDismissed, setBackupHintDismissed] = useState(
     Boolean(SAVED_STATE?.backupHintDismissed)
   );
@@ -885,6 +958,8 @@ export default function App() {
 
   // Multi-Item Extraction Confirmation Modal State
   const [extractionModalData, setExtractionModalData] = useState(null);
+  const [reanalysisPickerOpen, setReanalysisPickerOpen] = useState(false);
+  const [reanalysisFocus, setReanalysisFocus] = useState(analysisFocus);
 
   // Lightbulb AI Q&A Modal State
   const [qaModalState, setQaModalState] = useState(null);
@@ -1037,6 +1112,12 @@ export default function App() {
       : Boolean(llmSettings.apiKey.trim());
   const currentAnalysisMode =
     ANALYSIS_MODES.find((m) => m.id === analysisMode) || ANALYSIS_MODES[1];
+  const currentAnalysisFocus =
+    ANALYSIS_FOCUS_OPTIONS.find((option) => option.id === analysisFocus) ||
+    ANALYSIS_FOCUS_OPTIONS[2];
+  const globalAnalysisFocusMeta =
+    ANALYSIS_FOCUS_OPTIONS.find((option) => option.id === globalAnalysisFocus) ||
+    ANALYSIS_FOCUS_OPTIONS[2];
   const themeFocusDefault = focusByTheme?.[dumpManualTheme] || "";
   const focusSourceLabel = !extractionFocus.trim()
     ? "未设置"
@@ -1064,6 +1145,8 @@ export default function App() {
       llmSettings,
       skipDumpConfirmModal,
       analysisMode,
+      analysisFocus,
+      globalAnalysisFocus,
       inboxItems,
       selectedItemIds,
       customManualThemes,
@@ -1090,6 +1173,8 @@ export default function App() {
     llmSettings,
     skipDumpConfirmModal,
     analysisMode,
+    analysisFocus,
+    globalAnalysisFocus,
     inboxItems,
     selectedItemIds,
     customManualThemes,
@@ -1130,6 +1215,10 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isAnalyzingDump]);
 
+  useEffect(() => {
+    if (!extractionModalData) setReanalysisPickerOpen(false);
+  }, [extractionModalData]);
+
   const analyzeStageText =
     analyzeProgress < 20
       ? "读取并整理原句…"
@@ -1152,6 +1241,7 @@ export default function App() {
     setFilterRegister("All");
     setDumpManualTheme("高频核心库");
     setRawInputText("");
+    setAnalysisFocus(globalAnalysisFocus);
     setIsAddingTheme(false);
     setNewManualThemeInput("");
     setArenaConfig({
@@ -1439,20 +1529,25 @@ export default function App() {
     triggerToast(`🎉 已入库：${parts.join("，") || "没有变化"}`);
   };
 
-  const triggerExtractionForSnippet = async (rawSnippet, sourceLabel = "快捷收录") => {
+  const triggerExtractionForSnippet = async (rawSnippet, sourceLabel = "快捷收录", focusOverride = null) => {
     const cleanText = (rawSnippet || "").trim();
     if (!cleanText) return false;
     if (!requireApiKey("开始 AI 拆解")) return false;
 
     const mode = ANALYSIS_MODES.find((m) => m.id === analysisMode) || ANALYSIS_MODES[1];
-    const limits = getAdaptiveExtractionLimits(mode.id, cleanText);
+    const activeFocus = normalizeAnalysisFocus(focusOverride || analysisFocus);
+    const activeFocusMeta =
+      ANALYSIS_FOCUS_OPTIONS.find((option) => option.id === activeFocus) ||
+      ANALYSIS_FOCUS_OPTIONS[2];
+    const needsPatterns = mode.id !== "economy" || activeFocus !== "word";
+    const limits = getAdaptiveExtractionLimits(mode.id, cleanText, activeFocus);
     const focusText = extractionFocus.trim();
     setIsAnalyzingDump(true);
     setAnalyzingSourceLabel(sourceLabel);
     setAnalyzeProgress(8);
 
     try {
-      const schema = buildExtractionSchema(mode.id);
+      const schema = buildExtractionSchema(mode.id, activeFocus);
       const modeInstruction = {
         economy: `Mode: 节省 (economy). Extract AT MOST ${limits.maxItems} items, only the most reusable ones. meaning <= 22 Chinese characters, usageNote <= 30 Chinese characters. Do not restate the sentence.`,
         balanced: `Mode: 平衡 (balanced). Extract 2-${limits.maxItems} items. meaning <= 40 Chinese characters, usageNote <= 60 Chinese characters with one collocation hint.`,
@@ -1460,10 +1555,22 @@ export default function App() {
       }[mode.id];
 
       const fieldInstruction = {
-        economy: "Return only these fields per item: target, category, cefr, register, meaning, usageNote.",
-        balanced: "Return per item: target, category, cefr, register, meaning, usageNote, priority (\"High\"|\"Medium\"|\"Low\"), patterns (1-3 lowercase inflected forms needed to match the learner's own writing).",
-        detailed: "Return per item: target, category, cefr, register, meaning, usageNote, priority, priorityReason, aiTheme, tags, patterns (1-3 lowercase inflected forms)."
+        economy: `Return only these fields per item: target, category, cefr, register, meaning, usageNote${
+          needsPatterns ? ", patterns (2-4 lowercase anchors; required for sentence frames)" : ""
+        }.`,
+        balanced: "Return per item: target, category, cefr, register, meaning, usageNote, priority (\"High\"|\"Medium\"|\"Low\"), patterns (2-4 lowercase anchors; use short 2-4 word phrases for sentence frames).",
+        detailed: "Return per item: target, category, cefr, register, meaning, usageNote, priority, priorityReason, aiTheme, tags, patterns (2-4 lowercase anchors; use short 2-4 word phrases for sentence frames)."
       }[mode.id];
+
+      const focusRules =
+        activeFocus === "word"
+          ? `4. Each target must be exactly ONE English word in lemma form. No phrases, collocations or sentence frames.
+5. Pick high-value content words (precise verbs, nouns, adjectives, adverbs) that a ${profile.cefr} learner can reuse; skip function words, proper nouns, numbers and trivial words.`
+          : activeFocus === "sentence"
+          ? `4. Each target must be a reusable sentence frame with slot placeholders such as [sb]/[sth]/[verb], roughly 5-18 words. Never copy a one-off sentence unless it is itself a reusable frame. category must be "Sentence Pattern".
+5. patterns must contain 2-4 short lowercase anchor phrases (2-4 words each) copied from the frame, so the frame can be detected when the learner reuses it.`
+          : `4. Targets may be single words, multi-word chunks, idioms, or sentence frames with [sb]/[sth] placeholders. A sentence frame may be 5-18 words.
+5. Cover a MIX when the text supports it: include at least one single word, one multi-word phrase, and one sentence frame. Skip proper nouns, numbers and filler words. Sentence frames need 2-4 short lowercase anchor patterns.`;
 
       const longInputInstruction =
         cleanText.length > 900
@@ -1478,20 +1585,26 @@ export default function App() {
 "${cleanText}"
 
 Learner CEFR: ${profile.cefr} (${profile.cefrTitle}).
-${modeInstruction}${longInputInstruction}${focusInstruction}
+${modeInstruction}
+ANALYSIS FOCUS: ${activeFocusMeta.label} — ${activeFocusMeta.desc}${longInputInstruction}${focusInstruction}
 
 DICTIONARY NORMALIZATION RULES (highest priority):
 1. Every target must be in lemma/dictionary form: base verb with no -ed/-ing/-s, singular noun unless the expression is fixed plural, and no tense, aspect or voice marker.
 2. Strip grammatical decoration that only belongs to this sentence: articles (a/an/the), subject pronouns, auxiliaries, possessives and prepositions — unless they are a fixed part of the idiom (e.g. "the elephant in the room").
 3. Never extract grammar itself (tense, plural, articles, word class) or a one-off subject+verb clause. If the original is inflected, restore the canonical entry (e.g. "was given a heads-up" -> "give a heads-up"; "got bogged down in" -> "get bogged down in").
-4. Do NOT output the whole sentence. Each target is a reusable chunk (phrasal verb, collocation, idiom, or sentence pattern with [sb]/[sth] placeholders), max 6 words.
-5. Skip proper nouns, numbers, filler words and single low-value words.
+${focusRules}
 6. Deduplicate: if two items differ only by inflection, keep one canonical entry.
 7. Tag register: "spoken" if the entry is mainly used in conversation/chat, "written" if it belongs to email, reports or formal prose, "both" if it is natural in both. Never force a register you cannot justify.
 
 For each item:
 - target: the normalized reusable entry.
-- category: one of "Idiom", "Phrasal Verb", "Sentence Pattern", "Vocabulary".
+- category: ${
+        activeFocus === "word"
+          ? 'must be "Vocabulary"'
+          : activeFocus === "sentence"
+          ? 'must be "Sentence Pattern"'
+          : 'one of "Idiom", "Phrasal Verb", "Sentence Pattern", "Vocabulary"'
+      }.
 - cefr: one of "A1", "A2", "B1", "B2", "C1", "C2".
 - register: one of "spoken", "written", "both".
 - meaning: concise Chinese definition.
@@ -1512,6 +1625,11 @@ ${fieldInstruction}`;
         .map((item) => ({ ...item, target: sanitizeExtractionTarget(item.target) }))
         .filter((item) => item.target && isUsefulExtractionTarget(item.target))
         .filter((item) => {
+          if (activeFocus === "word" && countTargetWords(item.target) !== 1) return false;
+          if (activeFocus === "sentence" && countTargetWords(item.target) < 3) return false;
+          return true;
+        })
+        .filter((item) => {
           if (acceptedTargets.some((target) => targetsAreSameEntry(target, item.target))) return false;
           acceptedTargets.push(item.target);
           return true;
@@ -1522,28 +1640,43 @@ ${fieldInstruction}`;
         throw new Error(
           focusText
             ? "AI 没有返回符合自定义方向的地道表达，可放宽方向或换一句再试"
-            : "AI 没有返回可用的地道表达，请换一句再试"
+            : `AI 没有返回符合「${activeFocusMeta.label}」侧重的可用表达，可切换侧重或换一句再试`
         );
       }
 
-      const candidates = normalized.map((item, idx) => ({
-        tempId: `cand-${Date.now()}-${idx}`,
-        target: item.target,
-        rawInput: cleanText,
-        category: EXTRACTION_CATEGORIES.includes(item.category) ? item.category : "Idiom",
-        cefr: /^(A1|A2|B1|B2|C1|C2)$/.test(item.cefr || "") ? item.cefr : profile.cefr,
-        register: normalizeRegister(item.register),
-        meaning: item.meaning || "地道核心表达",
-        usageNote: item.usageNote || "可在相近语境中直接替换使用。",
-        priority: ["High", "Medium", "Low"].includes(item.priority) ? item.priority : "High",
-        priorityReason: item.priorityReason || `按当前 ${profile.cefr} 水平优先积累`,
-        tags: item.tags?.length ? item.tags : [sourceLabel],
-        aiTheme: item.aiTheme || guessAiTheme(`${item.target} ${cleanText}`),
-        manualTheme: dumpManualTheme || "高频核心库",
-        patterns: item.patterns?.length
-          ? item.patterns.map((p) => String(p).toLowerCase())
-          : [item.target.toLowerCase()]
-      }));
+      const candidates = normalized.map((item, idx) => {
+        const category =
+          activeFocus === "word"
+            ? "Vocabulary"
+            : activeFocus === "sentence"
+            ? "Sentence Pattern"
+            : EXTRACTION_CATEGORIES.includes(item.category)
+            ? item.category
+            : "Idiom";
+        const patterns = (Array.isArray(item.patterns) ? item.patterns : [])
+          .map((p) => String(p).trim().toLowerCase())
+          .filter(Boolean);
+        return {
+          tempId: `cand-${Date.now()}-${idx}`,
+          target: item.target,
+          rawInput: cleanText,
+          category,
+          cefr: /^(A1|A2|B1|B2|C1|C2)$/.test(item.cefr || "") ? item.cefr : profile.cefr,
+          register: normalizeRegister(item.register),
+          meaning: item.meaning || "地道核心表达",
+          usageNote: item.usageNote || "可在相近语境中直接替换使用。",
+          priority: ["High", "Medium", "Low"].includes(item.priority) ? item.priority : "High",
+          priorityReason: item.priorityReason || `按当前 ${profile.cefr} 水平优先积累`,
+          tags: item.tags?.length ? item.tags : [sourceLabel],
+          aiTheme: item.aiTheme || guessAiTheme(`${item.target} ${cleanText}`),
+          manualTheme: dumpManualTheme || "高频核心库",
+          patterns: patterns.length
+            ? patterns
+            : category === "Sentence Pattern"
+            ? [buildSentenceAnchor(item.target)]
+            : [item.target.toLowerCase()]
+        };
+      });
 
       setAnalyzeProgress(100);
       await new Promise((r) => setTimeout(r, 250));
@@ -1585,9 +1718,17 @@ ${fieldInstruction}`;
 
   const handleRetryExtraction = () => {
     if (!extractionModalData) return;
+    setReanalysisFocus(analysisFocus);
+    setReanalysisPickerOpen((prev) => !prev);
+  };
+
+  const runReanalysis = (focusToUse = analysisFocus) => {
+    if (!extractionModalData) return;
     const { rawText, sourceLabel } = extractionModalData;
+    setAnalysisFocus(focusToUse);
+    setReanalysisPickerOpen(false);
     setExtractionModalData(null);
-    triggerExtractionForSnippet(rawText, sourceLabel);
+    triggerExtractionForSnippet(rawText, sourceLabel, focusToUse);
   };
 
   // ==========================================
@@ -2692,9 +2833,37 @@ Reply as ${scenario.aiRole} only. Stay fully in character as a real person: neve
               "trapIdeal"
             ]
           }
+        },
+        corpusSuggestions: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              target: { type: "STRING" },
+              category: { type: "STRING" },
+              cefr: { type: "STRING" },
+              register: { type: "STRING" },
+              meaning: { type: "STRING" },
+              usageNote: { type: "STRING" },
+              patterns: { type: "ARRAY", items: { type: "STRING" } },
+              sourceText: { type: "STRING" },
+              reason: { type: "STRING" }
+            },
+            required: [
+              "target",
+              "category",
+              "cefr",
+              "register",
+              "meaning",
+              "usageNote",
+              "patterns",
+              "sourceText",
+              "reason"
+            ]
+          }
         }
       },
-      required: ["overallScore", "scoreDelta", "cefrProgress", "assessmentSummary", "dimensionChanges", "sentenceUpgrades", "weaknessDrills"]
+      required: ["overallScore", "scoreDelta", "cefrProgress", "assessmentSummary", "dimensionChanges", "sentenceUpgrades", "weaknessDrills", "corpusSuggestions"]
     };
 
     const reviewRegister = getDialogueRegisterMeta(scenario.register || arenaConfig.register);
@@ -2702,6 +2871,19 @@ Reply as ${scenario.aiRole} only. Stay fully in character as a real person: neve
     const registerRubric = isSpokenReview
       ? "SPOKEN rubric: judge natural spoken English. Contractions, informal words, discourse markers, short answers and sentence fragments are acceptable and must NOT be penalised as grammar mistakes. Reward fluency, natural rhythm and idiomatic phrasing over written formality."
       : "WRITTEN rubric: judge written English. Check complete sentences, punctuation, connectors, precision and tone appropriate to an email or formal message. Spoken fillers and fragmentary wording are errors here.";
+
+    const isFreeConversation = totalTargets === 0;
+    const suggestionFocusRule =
+      analysisFocus === "word"
+        ? "Each suggested target must be ONE English word in lemma form, category Vocabulary."
+        : analysisFocus === "sentence"
+        ? "Each suggested target must be a reusable sentence frame with [sb]/[sth] placeholders, category Sentence Pattern, with 2-4 short anchor patterns."
+        : "Prefer reusable chunks; when the transcript supports it include at least one single word or short chunk and one sentence frame.";
+    const existingCorpusBrief = inboxItems
+      .slice(0, 30)
+      .map((item) => item.target)
+      .join(" | ")
+      .slice(0, 2000) || "(empty)";
 
     const prompt = `Evaluate this role-play practice session and produce a review report based ONLY on what the learner actually wrote.
 
@@ -2732,7 +2914,17 @@ RULES
 4. Scores: overallScore reflects this session (0-100) under the ${reviewRegister.label} rubric, scoreDelta is the change applied to the learner's current level (between -5 and +8). dimensionChanges are short signed strings like "+3" or "-1". Grammar must be judged by the practice register, not by written-essay standards when practising spoken English.
 5. assessmentSummary: 2-3 Chinese sentences, name the exact expressions the learner used or missed, and state whether the register was natural.
 6. If the learner's sentence is already natural, say so in diffExplanation instead of faking a big upgrade.
-7. Never mention AI, models or prompts inside quoted role-play lines.`;
+7. Never mention AI, models or prompts inside quoted role-play lines.
+8. corpusSuggestions: ${
+      isFreeConversation
+        ? `recommend 1-3 expressions this learner should add to their corpus. Rules:
+   - sourceText MUST be one utterance copied verbatim from FULL TRANSCRIPT, without the speaker name. Prefer the learner's own wording; at most ONE suggestion may come from an AI line.
+   - target must be normalized to lemma form and must fit the practice register. ${suggestionFocusRule}
+   - reason: one Simplified-Chinese sentence that quotes the learner's actual wording and explains what the expression upgrades.
+   - Do NOT suggest anything already present in the learner's corpus: ${existingCorpusBrief}.
+   - If nothing is genuinely worth adding, return an empty array. Never invent a filler suggestion.`
+        : "this round already has preset target expressions: return an empty corpusSuggestions array."
+    }`;
 
     setIsEvaluating(true);
     try {
@@ -2740,7 +2932,7 @@ RULES
         prompt,
         "You are a strict but encouraging English speaking coach reviewing a real role-play transcript. You only quote sentences the learner actually produced and you never fabricate practice data.",
         reviewSchema,
-        { maxTokens: 3200, disableThinking: true }
+        { maxTokens: isFreeConversation ? 3800 : 3200, disableThinking: true }
       );
 
       const clampScore = (n, fallback) => {
@@ -2810,6 +3002,81 @@ RULES
         .filter((drill, idx, arr) => arr.findIndex((d) => d.targetId === drill.targetId) === idx)
         .slice(0, 3);
 
+      const normalizeQuote = (value) =>
+        String(value || "")
+          .toLowerCase()
+          .replace(/[’‘]/g, "'")
+          .replace(/\s+/g, " ")
+          .trim();
+      const userLineQuotes = userMessages.map((m) => normalizeQuote(m.text));
+      const aiLineQuotes = dialogue
+        .filter((m) => m.sender === "ai")
+        .map((m) => normalizeQuote(m.text));
+      const transcriptQuote = normalizeQuote(dialogue.map((m) => m.text).join(" "));
+
+      let aiSuggestionUsed = false;
+      const acceptedSuggestionTargets = [];
+      const corpusSuggestions = isFreeConversation
+        ? (Array.isArray(result?.corpusSuggestions) ? result.corpusSuggestions : [])
+            .map((s, idx) => {
+              const target = sanitizeExtractionTarget(s?.target);
+              const sourceText = String(s?.sourceText || "")
+                .trim()
+                .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+                .replace(/^[A-Za-z][A-Za-z .'-]{0,30}:\s*/, "")
+                .replace(/^[.…\s]+|[.,!?;:…\s]+$/g, "");
+              const reason = String(s?.reason || "").trim();
+              if (!target || !isUsefulExtractionTarget(target) || !sourceText || !reason) {
+                return null;
+              }
+              if (analysisFocus === "word" && countTargetWords(target) !== 1) return null;
+              if (analysisFocus === "sentence" && countTargetWords(target) < 3) return null;
+              const quote = normalizeQuote(sourceText);
+              if (quote.length < 8 || !transcriptQuote.includes(quote)) return null;
+              const fromLearner = userLineQuotes.some((line) => line.includes(quote));
+              const fromAi = !fromLearner && aiLineQuotes.some((line) => line.includes(quote));
+              if (!fromLearner && !fromAi) return null;
+              if (fromAi && aiSuggestionUsed) return null;
+              if (inboxItems.some((item) => targetsAreSameEntry(item.target, target))) return null;
+              if (acceptedSuggestionTargets.some((existing) => targetsAreSameEntry(existing, target))) {
+                return null;
+              }
+              if (fromAi) aiSuggestionUsed = true;
+              acceptedSuggestionTargets.push(target);
+
+              const category =
+                analysisFocus === "word"
+                  ? "Vocabulary"
+                  : analysisFocus === "sentence"
+                  ? "Sentence Pattern"
+                  : EXTRACTION_CATEGORIES.includes(s.category)
+                  ? s.category
+                  : "Sentence Pattern";
+              const patterns = (Array.isArray(s.patterns) ? s.patterns : [])
+                .map((p) => String(p).trim().toLowerCase())
+                .filter(Boolean);
+              return {
+                id: `sug-${Date.now()}-${idx}`,
+                target,
+                category,
+                cefr: /^(A1|A2|B1|B2|C1|C2)$/.test(s.cefr || "") ? s.cefr : profile.cefr,
+                register: normalizeRegister(s.register),
+                meaning: String(s.meaning || "").trim() || "来自本局对话的高价值表达",
+                usageNote: String(s.usageNote || "").trim(),
+                patterns: patterns.length
+                  ? patterns
+                  : category === "Sentence Pattern"
+                  ? [buildSentenceAnchor(target)]
+                  : [target.toLowerCase()],
+                sourceText,
+                source: fromAi ? "ai" : "learner",
+                reason
+              };
+            })
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+
       const nextReview = {
         isDemo: false,
         register: reviewRegister.id,
@@ -2824,7 +3091,8 @@ RULES
           assessmentSummary: String(result?.assessmentSummary || "").trim()
         },
         sentenceUpgrades: upgrades,
-        weaknessDrills: drills
+        weaknessDrills: drills,
+        corpusSuggestions
       };
 
       setReviewData(nextReview);
@@ -2857,6 +3125,38 @@ RULES
     } finally {
       setIsEvaluating(false);
     }
+  };
+
+  const handleQueueCorpusSuggestion = (suggestion) => {
+    const target = sanitizeExtractionTarget(suggestion?.target);
+    if (!target) return;
+    const candidate = {
+      tempId: `sug-${Date.now()}`,
+      target,
+      rawInput: suggestion.sourceText || "",
+      category: EXTRACTION_CATEGORIES.includes(suggestion.category)
+        ? suggestion.category
+        : "Sentence Pattern",
+      cefr: /^(A1|A2|B1|B2|C1|C2)$/.test(suggestion.cefr || "") ? suggestion.cefr : profile.cefr,
+      register: normalizeRegister(suggestion.register),
+      meaning: suggestion.meaning || "来自本局对话的高价值表达",
+      usageNote: suggestion.usageNote || "结合本局原语境记忆，效果更好。",
+      priority: "High",
+      priorityReason: "复盘推荐：正好补上你本局真实对话里的表达缺口",
+      tags: ["复盘推荐"],
+      aiTheme: guessAiTheme(`${target} ${suggestion.sourceText || ""}`),
+      manualTheme: dumpManualTheme || "高频核心库",
+      patterns: suggestion.patterns?.length
+        ? suggestion.patterns
+        : [buildSentenceAnchor(target)]
+    };
+    setExtractionModalData({
+      sourceLabel: "复盘推荐表达",
+      rawText: suggestion.sourceText || "",
+      candidates: [candidate],
+      selectedTempIds: [candidate.tempId],
+      dontAskAgainChecked: false
+    });
   };
 
   const handleCheckDrill = async (drill) => {
@@ -2968,14 +3268,62 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
     triggerToast(`🎓 已将当前英语等级切换为 ${newCefr}`);
   };
 
+  const createNoteId = () => `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  const handleSaveNoteOnly = () => {
+    const clean = noteContent.trim();
+    if (!clean) return;
+    const exists = savedNotesHistory.some(
+      (note) => String(note.text || "").trim().toLowerCase() === clean.toLowerCase()
+    );
+    if (!exists) {
+      setSavedNotesHistory((prev) => [
+        { id: createNoteId(), text: clean, time: "Just now", status: "raw" },
+        ...prev
+      ]);
+    }
+    setNoteContent("");
+    triggerToast(exists ? "📝 这条已经在 Notes 列表里了" : "📝 已存入 Notes 列表，稍后可让 AI 拆解");
+  };
+
   const handleSubmitNoteToInbox = async () => {
     const clean = noteContent.trim();
     if (!clean) return;
     const ok = await triggerExtractionForSnippet(clean, "随手记 Notes");
     if (ok) {
-      setSavedNotesHistory((prev) => [{ id: `n-${Date.now()}`, text: clean, time: "Just now" }, ...prev]);
+      setSavedNotesHistory((prev) => {
+        const existsIndex = prev.findIndex(
+          (note) => String(note.text || "").trim().toLowerCase() === clean.toLowerCase()
+        );
+        if (existsIndex >= 0) {
+          return prev.map((note, index) =>
+            index === existsIndex ? { ...note, status: "analyzed", time: "Just now" } : note
+          );
+        }
+        return [
+          { id: createNoteId(), text: clean, time: "Just now", status: "analyzed" },
+          ...prev
+        ];
+      });
       setNoteContent("");
     }
+  };
+
+  const handleAnalyzeSavedNote = async (note) => {
+    if (isAnalyzingDump) return;
+    const ok = await triggerExtractionForSnippet(note.text, "随手记 Notes");
+    if (ok) {
+      setSavedNotesHistory((prev) =>
+        prev.map((entry) =>
+          entry.id === note.id ? { ...entry, status: "analyzed", time: "Just now" } : entry
+        )
+      );
+    }
+  };
+
+  const handleDeleteSavedNote = (note) => {
+    if (!window.confirm("确定删除这条 Notes 吗？删除后不可恢复。")) return;
+    setSavedNotesHistory((prev) => prev.filter((entry) => entry.id !== note.id));
   };
 
   // Computed lists
@@ -3723,6 +4071,12 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                       <span className="text-[10px] text-slate-500">{currentAnalysisMode.summary}</span>
                     </div>
                     <p className="text-[10px] text-slate-500 leading-relaxed">{currentAnalysisMode.desc}</p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-slate-400">拆解侧重：</span>
+                    <AnalysisFocusPicker value={analysisFocus} onChange={setAnalysisFocus} />
+                    <span className="text-[10px] text-slate-500">{currentAnalysisFocus.desc}</span>
                   </div>
 
                   <div className="rounded-xl border border-slate-800 bg-slate-950/60">
@@ -5267,6 +5621,73 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   ))}
                 </div>
 
+                {reviewData.totalTargets === 0 && (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <BookmarkPlus className="w-5 h-5 text-emerald-400" />
+                      <h3 className="font-bold text-lg text-white">值得加入语料库的表达</h3>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold">
+                        本局推荐 · 可选
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      只从你本局真实说过或 AI 说过的句子中筛选，不会凭空编造；感兴趣的可以单独加入 Inbox。
+                    </p>
+                    {(reviewData.corpusSuggestions || []).length === 0 ? (
+                      <div className="bg-slate-900 border border-dashed border-slate-700 rounded-2xl p-5 text-xs text-slate-400">
+                        本局没有筛出必须新增的表达，继续保持当前积累节奏即可。
+                      </div>
+                    ) : (
+                      (reviewData.corpusSuggestions || []).map((suggestion) => (
+                        <div
+                          key={suggestion.id}
+                          className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                              <span className="text-sm font-bold text-white break-words">
+                                {suggestion.target}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-indigo-300 whitespace-nowrap">
+                                {suggestion.category} · {suggestion.cefr}
+                              </span>
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded border font-semibold whitespace-nowrap ${
+                                  getRegisterMeta(suggestion.register).badgeClass
+                                }`}
+                              >
+                                {getRegisterMeta(suggestion.register).label}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleQueueCorpusSuggestion(suggestion)}
+                              className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-200 hover:text-white border border-emerald-500/40 font-semibold flex items-center gap-1"
+                            >
+                              <BookmarkPlus className="w-3 h-3" />
+                              + 加入语料库
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-200 font-medium">{suggestion.meaning}</p>
+                          {suggestion.usageNote && (
+                            <p className="text-[11px] text-slate-400">💡 {suggestion.usageNote}</p>
+                          )}
+                          <div className="rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 space-y-1">
+                            <p className="text-[10px] text-slate-500">
+                              {suggestion.source === "ai" ? "来自 AI 台词" : "来自你的原话"}
+                            </p>
+                            <p className="text-[11px] text-slate-400 italic break-words">
+                              "{suggestion.sourceText}"
+                            </p>
+                          </div>
+                          <p className="text-[11px] text-emerald-300/90 leading-relaxed">
+                            {suggestion.reason}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
                 {/* Weakness Micro-Drills */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
@@ -5455,21 +5876,71 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                 placeholder="随时记录灵光一现的句子或表达..."
                 className="w-full rounded-xl bg-slate-950 border border-slate-800 p-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
               />
-              <button
-                onClick={handleSubmitNoteToInbox}
-                disabled={!noteContent.trim() || isAnalyzingDump}
-                className="w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5"
-              >
-                <BookmarkPlus className="w-3.5 h-3.5" />
-                <span>AI 拆解并提交至 Inbox</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleSaveNoteOnly}
+                  disabled={!noteContent.trim()}
+                  className="py-2 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-50 text-amber-300 font-bold text-[11px] flex items-center justify-center gap-1.5"
+                >
+                  <StickyNote className="w-3.5 h-3.5" />
+                  <span>仅存 Notes</span>
+                </button>
+                <button
+                  onClick={handleSubmitNoteToInbox}
+                  disabled={!noteContent.trim() || isAnalyzingDump}
+                  className="py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-[11px] flex items-center justify-center gap-1.5"
+                >
+                  <BookmarkPlus className="w-3.5 h-3.5" />
+                  <span>AI 拆解入库</span>
+                </button>
+              </div>
               {savedNotesHistory.length > 0 && (
-                <div className="pt-2 border-t border-slate-800 max-h-24 overflow-y-auto space-y-1">
-                  {savedNotesHistory.map((n) => (
-                    <div key={n.id} className="text-[11px] text-slate-400 truncate">
-                      • {n.text}
-                    </div>
-                  ))}
+                <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500">
+                    <span>Notes 列表（{savedNotesHistory.length}）</span>
+                    <span>待拆解可直接交给 AI</span>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
+                    {savedNotesHistory.map((note) => {
+                      const isRaw = note.status === "raw";
+                      return (
+                        <div
+                          key={note.id}
+                          className="rounded-lg border border-slate-800 bg-slate-950/70 px-2.5 py-2 space-y-1"
+                        >
+                          <p className="text-[11px] text-slate-300 leading-snug break-words">
+                            {note.text}
+                          </p>
+                          <div className="flex items-center justify-between gap-1">
+                            <span
+                              className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
+                                isRaw
+                                  ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                                  : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                              }`}
+                            >
+                              {isRaw ? "待拆解" : "已拆解"}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleAnalyzeSavedNote(note)}
+                                disabled={isAnalyzingDump}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 disabled:opacity-50"
+                              >
+                                AI 拆解
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSavedNote(note)}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-rose-300"
+                              >
+                                删除
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -5599,6 +6070,34 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
               })}
             </div>
 
+            {reanalysisPickerOpen && (
+              <div className="px-4 sm:px-6 py-3 bg-indigo-950/30 border-t border-indigo-500/30 space-y-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-semibold text-indigo-200">这次优先拆：</span>
+                  <AnalysisFocusPicker value={reanalysisFocus} onChange={setReanalysisFocus} />
+                </div>
+                <p className="text-[10px] text-indigo-200/70 leading-relaxed">
+                  {ANALYSIS_FOCUS_OPTIONS.find((option) => option.id === reanalysisFocus)?.desc}
+                </p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    onClick={() => runReanalysis(analysisFocus)}
+                    disabled={isAnalyzingDump}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50 text-[11px] rounded-lg text-slate-300 font-semibold"
+                  >
+                    跳过并分析
+                  </button>
+                  <button
+                    onClick={() => runReanalysis(reanalysisFocus)}
+                    disabled={isAnalyzingDump}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-[11px] rounded-lg text-white font-bold"
+                  >
+                    按此侧重重新拆解
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="px-6 py-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
               <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
                 <input
@@ -5621,7 +6120,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                   className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50 text-xs rounded-xl text-indigo-300 font-semibold flex items-center gap-1.5"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  重新拆解
+                  {reanalysisPickerOpen ? "收起侧重选择" : "重新拆解"}
                 </button>
                 <button
                   onClick={() => setExtractionModalData(null)}
@@ -5911,9 +6410,24 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
                 <p className="text-[11px] text-slate-500 leading-relaxed">{currentAnalysisMode.desc}</p>
               </div>
 
+              {/* Global analysis focus */}
+              <div className="pt-3 border-t border-slate-800 space-y-2">
+                <span className="text-slate-300 font-semibold block">5. 默认拆解侧重（全局生效）：</span>
+                <AnalysisFocusPicker
+                  value={globalAnalysisFocus}
+                  onChange={(id) => {
+                    setGlobalAnalysisFocus(id);
+                    setAnalysisFocus(id);
+                  }}
+                />
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  {globalAnalysisFocusMeta.desc} 语料库随手记里还能为本次拆解临时切换侧重。
+                </p>
+              </div>
+
               {/* Global extraction focus */}
               <div className="pt-3 border-t border-slate-800 space-y-2">
-                <span className="text-slate-300 font-semibold block">5. 默认拆解方向（可选，全局生效）：</span>
+                <span className="text-slate-300 font-semibold block">6. 默认拆解方向（可选，全局生效）：</span>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -5939,7 +6453,7 @@ Return JSON: score 0-100, passed (true only if score >= 70), comment in Simplifi
               {/* 4. Data Backup: Export & Import */}
               <div className="pt-3 border-t border-slate-800 space-y-2">
                 <span className="text-slate-300 font-semibold block">
-                  6. 数据导出与导入备份 (JSON Backup & Restore)：
+                  7. 数据导出与导入备份 (JSON Backup & Restore)：
                 </span>
                 <p className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 leading-relaxed">
                   语料、随手记与 API Key 会自动保存在当前浏览器（localStorage）。更换设备、浏览器或清理缓存前，请先导出 JSON 备份；导出的文件不包含 API Key。
